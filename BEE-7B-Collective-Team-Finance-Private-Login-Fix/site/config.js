@@ -1,0 +1,1 @@
+window.PORTAL_CONFIG = {"apiKey": "AIzaSyCaA7vtkr39G6M0TChGKTA91eX352OYKZY", "authDomain": "collective-team-finance.firebaseapp.com", "projectId": "collective-team-finance", "storageBucket": "collective-team-finance.firebasestorage.app", "messagingSenderId": "626011001621", "appId": "1:626011001621:web:aecac64c6b95ae154b4f1c"};
