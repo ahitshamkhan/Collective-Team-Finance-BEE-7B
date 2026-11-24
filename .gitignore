@@ -25,3 +25,7 @@ htmlcov/
 # IDEs
 .vscode/
 .idea/
+
+# Local-only folders
+.agents/
+BEE-7B-Collective-Team-Finance-Private-Login-Fix/
