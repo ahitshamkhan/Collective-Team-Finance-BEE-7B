@@ -10,7 +10,7 @@ All P0 scope acceptance criteria and AR-01 through AR-07. Deadline: 26 November 
 
 ## Decision
 
-Use a minimal local composition and one public origin in production. Prefer a small existing host if available; otherwise a managed application platform with PostgreSQL is a reasonable alternative. No hosting account is assumed available, no provider is selected or purchased, and no deployment runs in this task. (basis: approved deadline, stack and operating scale)
+Use a single full stack Next.js App Router deployable in `frontend/` with Vercel as the proposed deployment platform and managed PostgreSQL. No hosting account is assumed provisioned, and no deployment runs in this task. (basis: approved deadline, revised full stack Next.js stack, and operating scale)
 
 ### Configuration contract
 
@@ -20,35 +20,34 @@ Secrets are required environment variables without checked in defaults. Example 
 |---|---|
 | `APP_ENV` | `development`, `test`, `production`; production validates all secure settings |
 | `PUBLIC_ORIGIN` | Exact canonical scheme/host/port used for Origin checks and redirects; HTTPS in production |
-| `DATABASE_URL` | Runtime `postgresql+psycopg` credentials with least privileges; never public |
-| `MIGRATION_DATABASE_URL` | Separate schema owner used only by Alembic/operator commands |
+| `DATABASE_URL` | Runtime pooled PostgreSQL connection string with least privileges; never public |
+| `DIRECT_URL` | Direct schema owner connection string used only by Prisma Migrate and operator CLI commands |
 | `PROVISIONING_DATABASE_URL` | Separate restricted operator credential for roster/admin provisioning, not the web process |
 | `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE` | Random signing key with at least 256 bits of entropy and fixed token namespace |
 | `OTP_HMAC_KEY`, `CSRF_HMAC_KEY`, `RATE_LIMIT_HMAC_KEY` | Distinct random keys, never reuse JWT key; environment managed |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_APP_PASSWORD`, `SMTP_FROM` | Initial Gmail submission: `smtp.gmail.com`, port 587 with STARTTLS and certificate validation; password secret, sender ownership verified |
-| `SMTP_TIMEOUT_SECONDS` | 10 initially; bounded send rather than indefinite thread occupation |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_APP_PASSWORD`, `SMTP_FROM` | Initial Gmail submission via Nodemailer: `smtp.gmail.com`, port 587 with STARTTLS and certificate validation; password secret, sender ownership verified |
+| `SMTP_TIMEOUT_SECONDS` | 10 initially; bounded send rather than indefinite execution |
 | `BUSINESS_TIMEZONE`, `CURRENCY` | Fixed `Asia/Karachi`, `PKR`; reject unsupported production changes |
 | `ADMIN_SESSION_SECONDS`, `MEMBER_SESSION_SECONDS`, `STATUS_SESSION_SECONDS` | 7200, 28800, 1800 respectively; validated positive bounds |
-| `TRUSTED_PROXY_IPS` | Explicit proxy addresses allowed to supply client IP/protocol headers |
+| `TRUSTED_PROXY_IPS` | Explicit proxy addresses allowed to supply client IP/protocol headers when applicable |
 | `LOG_LEVEL` | INFO in production; no request body or credential logging |
 | `COOKIE_SECURE` | True in production; false permitted only in explicit localhost development/test |
-| `API_INTERNAL_ORIGIN` | Development Next rewrite destination or infrastructure routing address; not browser public config |
 | `FINANCE_POLICIES_CONFIRMED` | False until named unresolved financial policies are ratified in the spec; must be true for production readiness, not a mechanism to bypass them |
 
-OTP lifetime, attempt count and resend cooldown remain 300 seconds, five attempts and 60 seconds. Rate thresholds live in one validated settings object using the identity contract. Frontend needs no secret or database URL. No NEXT_PUBLIC variable contains a secret. Password/key rotation procedures revoke sessions/challenges as applicable; key changes are deliberate operator actions.
+OTP lifetime, attempt count and resend cooldown remain 300 seconds, five attempts and 60 seconds. Rate thresholds live in one validated Zod settings object using the identity contract. Client bundles need no secret or database URL. No `NEXT_PUBLIC_*` variable contains a secret. Password/key rotation procedures revoke sessions/challenges as applicable; key changes are deliberate operator actions.
 
 ### Local development design
 
-Proposed ports: Next.js 3000, FastAPI 8000, PostgreSQL 5432 bound to localhost. Browser uses `http://localhost:3000` only; Next development rewrites `/api/v1/*` to FastAPI and forwards Set-Cookie. Different development cookie names avoid the Secure `__Host-` production prefix. Integration tests use a separate database and generated synthetic roster. Test email uses an injected in memory mail adapter readable only by the test process, never a public debug endpoint or application log. Real SMTP is tested separately with approved test accounts.
+Proposed ports: Next.js 3000, PostgreSQL 5432 bound to localhost. Browser uses `http://localhost:3000` only; `/api/v1/*` Route Handlers run inside the same Next.js process with no reverse proxy needed locally. Different development cookie names avoid the Secure `__Host-` production prefix. Integration tests use a separate database and generated synthetic roster. Test email uses an injected in memory Nodemailer transport readable only by the test process, never a public debug endpoint or application log. Real SMTP is tested separately with approved test accounts.
 
-Pin compatible framework/library versions in application lockfiles during implementation. Define documented commands for lint/typecheck/build, Pytest, migrations and Playwright. No local command requires the legacy Firebase configuration or production database access.
+Pin compatible framework/library versions in `frontend/package-lock.json` during implementation. Define documented commands for lint, typecheck, build, Vitest, Prisma migrations, and Playwright. No local command requires the legacy Firebase configuration or production database access.
 
 ### Migration and secure import
 
-1. Alembic owns schema creation, constraints, indexes and immutable transaction trigger. Runtime role is not schema owner. Baseline migrations create identity/roster/transaction/audit/idempotency state needed for the first slice; later migrations add expense/correction constraints and indexes as implemented. Test upgrade from empty and from each preceding revision.
-2. Prepare a private roster manifest outside public assets and Git: stable roster keys, names, ten explicit group codes and each member's current group. Administrator manifest has exactly three slots with verified emails and member keys. Do not infer either from leadership flags. The CLI validates duplicate keys, empty names, group references, exact counts and collisions before touching a database.
-3. Planned commands: `python -m app.cli roster validate --file <private-path>`, then authorized `roster import --file <private-path> --operator <label>`. Validation output reports counts/errors using nonprivate row numbers; no roster dump. Default import is a dry run unless explicit `--apply`; acquire the mutation guard, commit all records and operator audit in one transaction. A rerun with identical stable keys/content is a no op; changed data fails rather than overwriting. Enforce ten groups/26 members before commit.
-4. Planned admin command: `python -m app.cli admins provision --file <private-path> --operator <label> --apply`. Require complete three slot manifest and existing member records, hidden password entry per new account and a single transactional provisioning audit. Validate authorization rows and linked accounts before commit. Never pass passwords on command lines or return hashes. Initial password transfer remains a private operator responsibility; every admin still completes email OTP before session creation.
+1. Prisma Migrate owns schema creation, constraints, indexes and custom SQL for the immutable transaction trigger. Runtime role is not schema owner. Baseline migrations create identity/roster/transaction/audit/idempotency state needed for the first slice; later migrations add expense/correction constraints and indexes as implemented. Test `prisma migrate deploy` from empty and across revisions.
+2. Prepare a private roster manifest outside public assets and Git: stable roster keys, names, ten explicit group codes and each member's current group. Administrator manifest has exactly three slots with verified emails and member keys. Do not infer either from leadership flags. The CLI script validates duplicate keys, empty names, group references, exact counts and collisions before touching a database.
+3. Planned commands (run via `npx tsx` in `frontend/`): `npx tsx prisma/scripts/cli.ts roster validate --file <private-path>`, then authorized `roster import --file <private-path> --operator <label>`. Validation output reports counts/errors using nonprivate row numbers; no roster dump. Default import is a dry run unless explicit `--apply`; acquire the mutation guard, commit all records and operator audit in one transaction. A rerun with identical stable keys/content is a no op; changed data fails rather than overwriting. Enforce ten groups/26 members before commit.
+4. Planned admin command: `npx tsx prisma/scripts/cli.ts admins provision --file <private-path> --operator <label> --apply`. Require complete three slot manifest and existing member records, hidden password entry per new account and a single transactional provisioning audit. Validate authorization rows and linked accounts before commit. Never pass passwords on command lines or return hashes. Initial password transfer remains a private operator responsibility; every admin still completes email OTP before session creation.
 5. Legacy package has 11 categories and empty seeded enrollment values, not a validated production roster. Map chassis to collective expense category only after operator confirmation. Never import expense shares, initial zero totals or project placeholder budgets as production facts.
 6. Historical transactions are a separate unresolved import. Do not implement a blind converter. Obtain an authorized export and approve source IDs, amounts, dates, void status, member/group mappings and recorded actor provenance. If a historical actor cannot be verified, stop instead of attributing it to the current importer. Reconcile counts and active deposits/expenses against source records and have an authorized lead sign off.
 7. Cutover requires a backup and write freeze on the old ledger, rehearsal in a separate database, reconciliation and an explicit switch of the public origin. Do not dual write. After new financial writes exist, rollback cannot simply restore the old ledger and lose those writes; freeze, export/reconcile and use a reviewed recovery plan. The legacy files remain intact throughout.
@@ -57,8 +56,8 @@ Pin compatible framework/library versions in application lockfiles during implem
 
 | Option | Recommended use | Cost/tradeoff and prerequisites |
 |---|---|---|
-| One small VM with reverse proxy, frontend/API processes and PostgreSQL | Recommended when an operated host is already available | Simplest topology; operator owns patching, backups, TLS and restore. Off host backups are essential. |
-| Managed app hosting for frontend/API with managed PostgreSQL | If no operator can maintain the database | Less database operation work, but platform billing, SMTP egress, private connectivity and same origin routing must be confirmed. |
+| Vercel (proposed) with managed PostgreSQL | Recommended single origin deployment for full stack Next.js | Zero separate proxy/backend coordination; confirm Vercel plan timeouts, SMTP egress, and managed PostgreSQL TLS/connection pooling |
+| One small VM with reverse proxy, Node.js Next.js process and PostgreSQL | Alternative when an operated host is preferred | Simplest self hosted topology; operator owns patching, backups, TLS and restore. Off host backups are essential |
 
 No Kubernetes, microservices or multi region deployment. Enable HTTPS, private database ingress, trusted proxy validation, no-store auth/private responses, frame protection, MIME sniff protection and a CSP tested with the selected Next/shadcn build. Do not invent an unsafe blanket CSP exception to make a build pass. Disable public debug/docs endpoints or protect them in production. Readiness checks database connectivity, migrations, 10/26/3 provisioning and confirmed policy settings, not a live SMTP send on every probe.
 
@@ -70,16 +69,16 @@ Tasks are atomic implementation work for a later approved development run. Depen
 
 | Task | Priority and dependency | Work and completion evidence | Acceptance |
 |---|---|---|---|
-| T01 | P0, first | Scaffold only `frontend/` and `backend/` using confirmed stack; pin dependencies and add safe configuration validation. Legacy untouched. | AR-01, AR-07; AC-14 |
-| T02 | P0, T01 | Add same origin local routing, API error envelope/live health, public auth shell and teal portal shell without private seed data. | AR-01, AR-05; AC-13 |
-| T03 | P0, T01 | Implement SQLAlchemy models and Alembic first slice schema with identity, fixed roster, deposit, audit and idempotency constraints. Test empty upgrade/rollback on test DB. | AR-03, AR-06; AC-01, AC-05, AC-09 |
-| T04 | P0, T03 | Implement dry run roster validation/import and three slot admin CLI, least privilege roles and operator audits using synthetic data. | AR-06; AC-01, AC-12 |
-| T05 | P0, T03 | Implement Argon2id, JWT verification, session lookups, common mutation guard, permission dependencies and CSRF/origin enforcement. | AR-03, AR-04; AC-04, AC-06, AC-07 |
-| T06 | P0, T05 | Implement database rate counters, OTP challenge/HMAC/generation/attempt state and synchronous SMTP adapter with failure behavior. | AR-03; AC-03 |
-| T07 | P0, T06 | Implement admin credentials then OTP session path, member login and status sessions. Add integration tests proving no early privileged cookie. | AR-02; AC-04, AC-06 |
+| T01 | P0, first | Frontend Next.js + Tailwind + `shadcn/ui` initialized in `frontend/`; complete by installing `server-only`, Prisma, Zod, `jose`, `argon2`, Nodemailer, `decimal.js`, Vitest, and Playwright with safe Zod server configuration validation. Legacy untouched. | AR-01, AR-07; AC-14 |
+| T02 | P0, T01 | Add `/api/v1/health/live` Route Handler, `ErrorView` mapper, public auth shell, and teal portal shell without private seed data. | AR-01, AR-05; AC-13 |
+| T03 | P0, T01 | Implement Prisma schema (`prisma/schema.prisma`) and Prisma Migrate first slice SQL (identity, fixed roster, deposit, audit, idempotency, partial indexes, triggers). Test empty migrate on test DB. | AR-03, AR-06; AC-01, AC-05, AC-09 |
+| T04 | P0, T03 | Implement dry run roster validation/import and three slot admin TypeScript CLI scripts, least privilege roles and operator audits using synthetic data. | AR-06; AC-01, AC-12 |
+| T05 | P0, T03 | Implement Argon2id, `jose` JWT verification, session lookups, common mutation guard (`tx.$executeRaw`), `server-only` permission guards and CSRF/origin enforcement. | AR-03, AR-04; AC-04, AC-06, AC-07 |
+| T06 | P0, T05 | Implement database rate counters, OTP challenge/HMAC/generation/attempt state and synchronous Nodemailer SMTP adapter with failure behavior. | AR-03; AC-03 |
+| T07 | P0, T06 | Implement admin credentials then OTP session Route Handlers, member login and status sessions. Add integration tests proving no early privileged cookie. | AR-02; AC-04, AC-06 |
 | T08 | P0, T06 | Implement registration/verification and unique approve/reject mutations with audit and optimistic versions. | AR-02, AR-04; AC-02, AC-05, AC-12 |
 | T09 | P0, T07,T08 | Wire login/register/verify/pending and approval forms to real endpoints; test cookie/CSRF behavior and unique member selection. | AR-02, AR-05; AC-02 through AC-07 |
-| T10 | P0, T04,T05 | Implement deposit transaction service, Decimal validation, snapshots, guard, receipt replay and atomic audit. | AR-02, AR-04; AC-08 through AC-12 |
+| T10 | P0, T04,T05 | Implement deposit transaction service, `Prisma.Decimal` / `decimal.js` validation, snapshots, guard, receipt replay and atomic audit. | AR-02, AR-04; AC-08 through AC-12 |
 | T11 | P0, T10 | Implement summary and transaction read projections with exact aggregates and stable pagination. | AR-02, AR-05; AC-08, AC-09, AC-13 |
 | T12 | P0, T09,T11 | Wire admin deposit form and member overview/ledger; run the full admin OTP → approval → deposit → member read browser test with real PostgreSQL. | AR-02; AC-04, AC-05, AC-07 through AC-09 |
 | T13 | P0, T12 | First slice verification: race duplicate keys and suspension, inject audit failure, check unauthorized requests and redaction. Fix failures before broadening. | AR-03, AR-04; AC-03, AC-06, AC-07, AC-09, AC-12 |
@@ -92,7 +91,7 @@ Tasks are atomic implementation work for a later approved development run. Depen
 | T20 | P0, T17,T18,T19 | Complete shared finance pages and admin audit view, responsive navigation, focus and error states. | AR-05; AC-07, AC-13 |
 | T21 | P0, T08, account policies resolved | Implement recovery/password change, logout all, suspension/restore and versioned roster edits with audit/revocation. | AC-06, AC-10, AC-12 |
 | T22 | P0, T21 | Wire My account, recovery, roster and allowed suspension interfaces; test no private state remains on auth loss. | AC-06, AC-07, AC-13 |
-| T23 | P0, T20,T22 | Run complete Pytest/PostgreSQL and Playwright suite, typecheck/lint/build; fix regressions with targeted tests. | AC-01 through AC-14; AR-01 through AR-06 |
+| T23 | P0, T20,T22 | Run complete Vitest/PostgreSQL and Playwright suite, typecheck/lint/build; fix regressions with targeted tests. | AC-01 through AC-14; AR-01 through AR-06 |
 | T24 | P0, T23 | Conduct GA independent code/security review and resolve blocking findings; produce release notes and operator runbook. | AC-14, AR-07 |
 | T25 | P0, T24, hosting/sender available | Rehearse deployment, SMTP delivery, restore and rollback with test data; validate secure production cookies and proxy settings. | AC-14, AR-07 |
 | T26 | P0, T25, separate release approval | Validate private roster/import plan and any history reconciliation; approved cutover only after all P0 gates pass. | AC-01, AC-14, AR-06, AR-07 |

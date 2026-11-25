@@ -10,7 +10,7 @@ Scope AC-02 through AC-07 and AC-12; architecture AR-01, AR-03 through AR-06. Th
 
 ## Decision
 
-Use PyJWT with explicitly allowed HS256, separate random secrets for JWT, OTP HMAC, rate limit keying and CSRF, and pwdlib Argon2id. Proposed starting Argon2id parameters: 64 MiB memory, three iterations and parallelism four; benchmark on the target host and never go below the then current OWASP minimum. Passwords are 12..128 characters, never trimmed or logged; rehash on successful login when parameters change. Normalize email by trimming and lowercasing, never Gmail dot or plus rewriting. Preserve the submitted display name separately. (basis: approved stack, FastAPI security guidance and OWASP authentication practices)
+Use `jose` (`SignJWT` / `jwtVerify`) with explicitly allowed `HS256`, separate random secrets for JWT, OTP HMAC, rate limit keying and CSRF, and `argon2` (`argon2id` variant). Proposed starting Argon2id parameters: 64 MiB memory, three iterations and parallelism four; benchmark on the target host/serverless runtime and never go below the then current OWASP minimum. Passwords are 12..128 characters, never trimmed or logged; rehash on successful login when parameters change. Normalize email by trimming and lowercasing, never Gmail dot or plus rewriting. Preserve the submitted display name separately. (basis: approved stack, TypeScript/Next.js security guidance and OWASP authentication practices)
 
 ### Session design
 
@@ -32,7 +32,7 @@ The public edge exposes one origin. CORS is unnecessary by default; if enabled, 
 
 ### OTP challenge protocol
 
-Use `secrets.randbelow(1_000_000)` formatted to six digits, retaining leading zeros. Persist `HMAC(OTP_HMAC_KEY, challenge_id || purpose || generation || code)`, never raw codes. A 256 bit random flow secret is set in HttpOnly `__Host-cfp_flow` with Path=/ and five minute lifetime. Store only its SHA-256 hash with the challenge; require both flow possession and the OTP. The opaque cookie encodes challenge ID plus secret; it authorizes only OTP operations, not account or financial reads.
+Use Node.js `crypto.randomInt(0, 1_000_000)` formatted to six digits, retaining leading zeros. Persist `HMAC(OTP_HMAC_KEY, challenge_id || purpose || generation || code)`, never raw codes. A 256 bit random flow secret (`crypto.randomBytes(32)`) is set in HttpOnly `__Host-cfp_flow` with Path=/ and five minute lifetime. Store only its SHA-256 hash with the challenge; require both flow possession and the OTP. The opaque cookie encodes challenge ID plus secret; it authorizes only OTP operations, not account or financial reads.
 
 Challenge lookup uses the cookie, not a user supplied email or arbitrary purpose. Purpose originates from the initiating endpoint. Resend and verification rate limits are keyed by account/email and trusted IP, not only challenge ID. Each challenge expires five minutes after issuance; resend is allowed after 60 seconds, changes generation and HMAC, and invalidates the old code. Resend never resets failed attempts. At five failures revoke the challenge and enforce a 15 minute account/purpose cooldown before a new challenge. Do not extend an authenticated session through an OTP challenge.
 
@@ -40,7 +40,7 @@ For verification, lock the user (if any) and challenge, recheck eligibility, pur
 
 ### Delivery and rate limits
 
-Create/revoke challenge state and persist rate limits before SMTP. Do not hold a transaction while sending email. After commit, send synchronously with a ten second connection/socket timeout and mandatory TLS certificate validation. Mark `sent` or `failed` only if challenge generation still matches. A crashed/uncertain delivery leaves no session; the user retries after cooldown. Send failures never roll back into an approved account or a session. Verification requires `sent`; an email received during the short send acknowledgement window can safely retry.
+Create/revoke challenge state and persist rate limits before SMTP. Do not hold a database transaction while sending email. After commit, send synchronously via Nodemailer (`nodemailer`) with a ten second connection/socket timeout and mandatory TLS certificate validation. Mark `sent` or `failed` only if challenge generation still matches. A crashed/uncertain delivery leaves no session; the user retries after cooldown. Send failures never roll back into an approved account or a session. Verification requires `sent`; an email received during the short send acknowledgement window can safely retry.
 
 No automatic retry loop, broker or outbox worker. The UI offers controlled resend. Duplicate registration and unknown recovery email create a dummy flow with the same outward response shape and no code email; throttle dummy flows too. Do not claim timing based enumeration is eliminated: test and reduce measurable differences, and apply limits to all outcomes. Never return codes, credentials, hashes or raw SMTP exceptions.
 
@@ -77,9 +77,9 @@ The operator imports a private manifest with exactly three slots, normalized ema
 
 For each reserved account, an interactive CLI sets an initial password using hidden confirmation input (never a command argument or printed generated password). The trusted operator conveys that password outside the portal; first admin login still needs the account's email OTP. Audit actor is `operator` with an explicitly supplied nonsecret operator label. Runtime credentials cannot write authorization slots. Replacement of a predefined individual is a future approved operator procedure, not an MVP UI feature.
 
-### Permission dependencies
+### Permission guards (`server-only`)
 
-`require_status_or_full` reads only self metadata. `require_member` requires full eligible session. `require_admin` additionally requires the fixed admin match and admin OTP. Every router declares one explicitly; service mutations revalidate in their transaction. Never use an admin boolean supplied by the client. Financial projections shared with members omit other users' emails/contact data and all security state. Audit and registration lists are admin only.
+`requireStatusOrFull` reads only self metadata. `requireMember` requires full eligible session. `requireAdmin` additionally requires the fixed admin match and admin OTP. Every protected Route Handler calls one explicitly; service mutations revalidate inside their Prisma transaction. Never use an admin boolean supplied by the client. Financial projections shared with members omit other users' emails/contact data and all security state. Audit and registration lists are admin only.
 
 ## Build plan
 

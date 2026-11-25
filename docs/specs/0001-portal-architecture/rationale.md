@@ -10,8 +10,8 @@ This topic contains several buildable decisions. One umbrella and five child con
 
 | Choice | Benefit | Cost / disposition |
 |---|---|---|
-| One origin modular backend plus Next.js | Clear API authority, simple cookies and one database transaction boundary | Two runtimes still require deployment coordination; selected (basis: user preferences and small roster) |
-| Separate public frontend/API origins | Independent hosting flexibility | CORS, cookie and proxy configuration become harder; not preferred for deadline (basis: browser security boundaries) |
+| Full stack Next.js App Router + Route Handlers + Prisma | Single TypeScript deployable, zero cross service glue, same origin cookies, and one PostgreSQL transaction boundary | Server/client boundary must be enforced strictly via `server-only`; selected (basis: simplified deployment on Vercel and reduced complexity) |
+| Separate Next.js + FastAPI runtimes | Python ecosystem for backend | Extra runtime, proxy wiring, and two deployment pipelines; superseded (basis: user decision to simplify stack) |
 | Stateless JWT with refresh tokens | Fewer database checks | More rotation/reuse complexity and weaker immediate revocation unless state is reintroduced; rejected (basis: required revocation) |
 | Bounded JWT plus database sessions | Straightforward revocation and fixed expiry | Query per request and periodic login; selected (basis: approved session requirement) |
 | Fine grained financial locking | More simultaneous writes | More lock ordering and race cases to reason about; unnecessary at 26 users (basis: atomic financial operations) |
@@ -21,16 +21,16 @@ This topic contains several buildable decisions. One umbrella and five child con
 
 ## Rationale
 
-Choose predictable database operations and proven crypto libraries over infrastructure breadth. All arithmetic and permissions live in the backend. Snapshot attribution avoids rewriting history when members change groups. A database transaction commits finance, audit and duplicate receipt together. These choices directly address the legacy audit findings while keeping the implementation small.
+Choose predictable PostgreSQL transactions and proven TypeScript crypto libraries over multi runtime infrastructure breadth. All arithmetic and permissions live in `server-only` Route Handler services. Snapshot attribution avoids rewriting history when members change groups. A Prisma transaction commits finance, audit and duplicate receipt together. These choices directly address the legacy audit findings while keeping the implementation small and deployable on Vercel.
 
-The security workflow is still application code that needs careful testing; using JWT and Argon2id libraries does not make it automatically secure. The first slice therefore includes OTP/session failure tests and atomic deposit tests before expenses and extra pages. No date, overdraft or account policy is silently approved as a consequence of an implementation default.
+The security workflow is still application code that needs careful testing; using `jose` and `argon2` does not make it automatically secure. The first slice therefore includes OTP/session failure tests and atomic deposit tests before expenses and extra pages. No date, overdraft or account policy is silently approved as a consequence of an implementation default.
 
 ## References
 
 Sources only, as requested; no external reference links are included.
 
-Project sources: approved `docs/scope/scope.md`; your architecture preferences and deadline clarification; the preceding read only legacy audit; local legacy `site/styles.css`, `site/index.html` and rendering functions in `site/app.js`.
+Project sources: approved `docs/scope/scope.md`; your revised full stack Next.js architecture decision and deadline clarification; the preceding read only legacy audit; local legacy `site/styles.css`, `site/index.html` and rendering functions in `site/app.js`.
 
-Practices and official documentation checked: FastAPI JWT/password security guidance (PyJWT and pwdlib); SQLAlchemy session lifecycle and transaction guidance; PostgreSQL constraints and explicit locking; OWASP authentication, session management and CSRF prevention guidance; Google account App Password requirements. These support the decisions above, not a claim that deployment or Gmail delivery has been verified.
+Practices and official documentation checked: Next.js App Router Route Handlers and `server-only` boundaries; Prisma ORM PostgreSQL transactions, `Decimal`, and Prisma Migrate; Zod strict schema validation; `jose` JWT signing/verification and OWASP Argon2id/session/CSRF guidance; Nodemailer Gmail SMTP STARTTLS configuration; Vercel Node.js runtime and PostgreSQL pooling guidance. These support the decisions above, not a claim that deployment or Gmail delivery has been verified.
 
 No additional skills or MCP tools were discovered or installed. You will name any that are needed.

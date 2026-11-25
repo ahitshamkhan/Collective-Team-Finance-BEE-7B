@@ -10,7 +10,7 @@ Scope AC-02 through AC-13; architecture AR-01, AR-02 and AR-05. All required pag
 
 ## Decision
 
-Use JSON endpoints with Pydantic request and response schemas. Reject unknown write fields. Money is a decimal string, dates are `YYYY-MM-DD`, timestamps are ISO 8601 UTC and IDs are UUID strings. Lists use `{items,total,page,page_size}` with page >=1, default page size 25 and maximum 100. Stable ledger order is `(business_date DESC,created_at DESC,id DESC)`, audit order `(occurred_at DESC,id DESC)`; pagination is a current view, not a guaranteed historical export snapshot. (basis: approved shared history requirements and simple REST contracts)
+Use Next.js App Router Route Handlers under `src/app/api/v1/` with strict Zod request and response schemas (`.strict()`). Reject unknown write fields. Money is a decimal string, dates are `YYYY-MM-DD`, timestamps are ISO 8601 UTC and IDs are UUID strings. Lists use `{items,total,page,page_size}` with page >=1, default page size 25 and maximum 100. Stable ledger order is `(business_date DESC,created_at DESC,id DESC)`, audit order `(occurred_at DESC,id DESC)`; pagination is a current view, not a guaranteed historical export snapshot. (basis: approved shared history requirements and simple REST contracts)
 
 ### Shared types and access rules
 
@@ -96,11 +96,11 @@ No DELETE, admin promotion, new group/member creation, upload, project, payment 
 | `/admin/members`, `/admin/groups` | Allowed roster edits and group assignments; suspend/restore controls through linked account UI |
 | `/admin/audit` | Filterable audit history, before/after detail |
 
-Use auth and portal route groups with a shared portal shell. Initial page rendering contains no private data; a client session boundary calls `/auth/me` then permitted data endpoints. Route guards improve UX but never replace API permissions. Avoid adding a second auth implementation to Next middleware. No server actions performing finance writes and no duplicate BFF API layer.
+Use auth and portal route groups with a shared portal shell. Initial page rendering contains no private data; a client session boundary calls `/api/v1/auth/me` then permitted data endpoints. Route guards improve UX but never replace Route Handler API permissions. Avoid adding a second auth implementation to Next.js middleware (`proxy.ts`). No Server Actions performing finance writes and no duplicate BFF API layer; `/api/v1/*` Route Handlers are the single backend API boundary.
 
 `lib/api.ts` is the only browser fetch wrapper: relative `/api/v1`, credentials included, no-store, JSON schemas, CSRF header on writes, bounded timeout. Obtain CSRF at startup and after session changes; never automatically retry a financial write with a new key. On 401 clear in memory data and dialogs and navigate to login. On 403 show denied state. Cancel obsolete reads on navigation; after a mutation refetch relevant summary/list. Refetch on focus or explicit refresh; no realtime service. Shared data is never stored in localStorage.
 
-Reusable components: `PortalShell`, `Sidebar`, `MobileNavigation`, `SummaryCard`, `MoneyText`, `MemberTable`, `GroupTable`, `TransactionTable`, `TransactionFilters`, `Pagination`, `DepositForm`, `ExpenseForm`, `CorrectionDialog`, `ApprovalForm`, `OtpForm`, `AuditDiff`, `ErrorState`, `EmptyState`, `LoadingState`. Use shadcn/ui primitives for controls/dialog focus behavior rather than copying legacy string templates. API contract types are generated from committed OpenAPI during implementation or explicitly checked against it; no additional client state framework is necessary.
+Reusable components: `PortalShell`, `Sidebar`, `MobileNavigation`, `SummaryCard`, `MoneyText`, `MemberTable`, `GroupTable`, `TransactionTable`, `TransactionFilters`, `Pagination`, `DepositForm`, `ExpenseForm`, `CorrectionDialog`, `ApprovalForm`, `OtpForm`, `AuditDiff`, `ErrorState`, `EmptyState`, `LoadingState`. Use shadcn/ui primitives for controls/dialog focus behavior rather than copying legacy string templates. API contract types live in `src/lib/contracts.ts` shared with Zod schemas or verified against them; no additional client state framework is necessary.
 
 ### Visual contract
 
