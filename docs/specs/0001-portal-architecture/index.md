@@ -1,12 +1,12 @@
 # 0001. Collective Finance Portal architecture
 
 **Date:** 2026-11-24
-**Status:** Proposed
+**Status:** In Progress
 **Technical design approval:** Accepted by you on 24 November 2026 after your own review. No independent AI critique was requested. This feature linked spec remains Proposed until development begins; Accepted lifecycle status is reserved for built and verified work. Implementation is not yet authorized.
 
 ## Summary
 
-Build one modular application with a Next.js interface, a FastAPI backend and PostgreSQL. The backend owns authentication, permissions and accounting. The first working slice proves administrator OTP login, member approval, deposit recording and the member's real balance view before adding more features.
+Build one full stack Next.js App Router application in `frontend/` backed by PostgreSQL and Prisma ORM. Next.js Route Handlers under `/api/v1` and `server-only` services own authentication, permissions, and accounting. The first working slice proves administrator OTP login, member approval, deposit recording, and the member's real balance view before adding more features.
 
 This is a consolidated architecture umbrella, with focused child contracts rather than separate planning rounds for every page. It is not implementation approval. The approved requirements remain in `docs/scope/scope.md`.
 
@@ -32,7 +32,7 @@ Additional architecture acceptance criteria:
 
 | ID | Observable result |
 |---|---|
-| AR-01 | One browser origin serves the frontend and `/api/v1`; only FastAPI accesses PostgreSQL and SMTP. |
+| AR-01 | One browser origin serves the Next.js pages and `/api/v1` Route Handlers; only `server-only` server modules access PostgreSQL (via Prisma) and SMTP (via Nodemailer). |
 | AR-02 | The first real slice completes admin password/OTP, approval, deposit plus audit commit, and an approved member's updated ledger and collective balance. |
 | AR-03 | Restarting or using another worker cannot reset OTP attempts, rate limits, revocations or duplicate submission protection. |
 | AR-04 | Concurrent writes, approval conflicts, suspension races and failed audit inserts cannot create partial or unauthorized financial effects. |
@@ -42,7 +42,7 @@ Additional architecture acceptance criteria:
 
 ## Decision
 
-Use a minimal modular monolith: one backend deployable, one frontend deployable and one database, released together. Domain separation is code organization, not separate network services. Preserve Tracer Bullet delivery and GA verification. (basis: approved scope and your architecture preferences)
+Use a single full stack Next.js App Router deployable in `frontend/` with TypeScript, `server-only` domain modules, Next.js Route Handlers, Prisma ORM, and PostgreSQL. Domain separation is code organization under `src/server/`, not separate network services. Preserve Tracer Bullet delivery and GA verification. (basis: approved scope and revised full stack Next.js architecture)
 
 Your confirmed deadline is **26 November 2026 at 00:00 Asia/Karachi**, equivalent to **25 November 2026 at 19:00 UTC**. P1/P2 do not enter the release path. The deadline does not authorize bypassing security or accounting tests, and this specification is not a feasibility guarantee.
 
@@ -50,63 +50,69 @@ Your confirmed deadline is **26 November 2026 at 00:00 Asia/Karachi**, equivalen
 
 | Layer | Choice | Reason |
 |---|---|---|
-| Interface | Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui | Confirmed stack, retain the existing finance appearance |
-| Backend | FastAPI with synchronous routers and SQLAlchemy 2 style sessions through Psycopg 3 | Straightforward transaction ownership with blocking database/SMTP work in synchronous handlers |
-| Validation | Pydantic, unknown write fields forbidden | Explicit request/response contracts and prevention of mass assignment |
-| Persistence | PostgreSQL, Alembic, NUMERIC(14,2), Python Decimal | Exact money and enforced relational constraints |
-| Authentication primitives | PyJWT and pwdlib with Argon2id; Python secrets, hmac and hashlib | Established signing/hash primitives, no handwritten cryptography |
-| Session state | Signed JWT cookie plus PostgreSQL session row, no refresh token for MVP | Simple revocation and bounded session lifetime |
-| Email | Python SMTP client using Gmail submission with mandatory TLS | Small volume, no queue infrastructure; sender availability is a launch dependency |
-| Testing | Pytest against real PostgreSQL, Playwright against the complete app | Tests the actual database constraints and browser cookie behavior |
-| Delivery | One origin reverse proxy; frontend, API and PostgreSQL on a small host or managed equivalents | Avoid cross site cookie complexity and extra services |
+| Interface | Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui | Confirmed stack, already initialized in `frontend/`, retain the existing finance appearance |
+| API & Server Logic | Next.js Route Handlers (`/api/v1/*`) on Node.js runtime with `server-only` modules | Single deployable, same origin cookies, and strict server/client boundary |
+| Validation | Zod (`.strict()`), unknown write fields forbidden | Explicit request/response contracts and prevention of mass assignment |
+| Persistence | PostgreSQL, Prisma ORM, Prisma Migrate, `NUMERIC(14,2)`, `Prisma.Decimal` / `decimal.js` | Exact money, type safe queries, and enforced relational constraints |
+| Authentication primitives | `jose` (HS256) and Argon2id (`argon2`); Node.js `crypto` (`randomInt`, `randomBytes`, `createHmac`, `timingSafeEqual`) | Established signing/hash primitives, no handwritten cryptography |
+| Session state | Signed JWT cookie plus PostgreSQL `sessions` row, no refresh token for MVP | Simple revocation and bounded session lifetime |
+| Email | Nodemailer using Gmail SMTP submission with mandatory TLS | Small volume, no queue infrastructure; sender availability is a launch dependency |
+| Testing | Vitest against real PostgreSQL, Playwright against the complete app | Tests actual database constraints and browser cookie behavior |
+| Delivery | Vercel (proposed) with managed PostgreSQL | Single origin hosting with zero separate proxy or backend coordination |
 | Observability | Structured redacted logs and readiness checks | Sufficient initial diagnosis without selecting another service |
 
-Library patch versions will be pinned and checked during implementation, not guessed in this specification. No dependency is installed now. No cache, message broker, file storage service, websocket server or background job service is required.
+Library versions will be pinned in `frontend/package.json` and `package-lock.json` during implementation. No cache, message broker, file storage service, websocket server or background job service is required.
 
 ## System architecture
 
 ```mermaid
 flowchart LR
-  B[Browser] -->|HTTPS, cookies, CSRF header| P[Single origin reverse proxy]
-  P -->|Pages and assets| N[Next.js]
-  P -->|/api/v1| F[FastAPI routers]
-  F --> S[Identity, roster, finance and audit services]
-  S -->|Scoped SQLAlchemy sessions| D[(PostgreSQL)]
-  S -->|Bounded synchronous send after DB commit| E[Gmail SMTP]
-  C[Private operator CLI] --> S
+  B[Browser] -->|HTTPS, cookies, CSRF header| N[Next.js App Router on Vercel]
+  N -->|Pages and UI| UI[Client & Server Components]
+  N -->|/api/v1 Route Handlers| S[src/server/: identity, otp, mail, roster, finance, audit]
+  S -->|Prisma ORM transactions| D[(PostgreSQL)]
+  S -->|Bounded synchronous send after DB commit| E[Gmail SMTP via Nodemailer]
+  C[Private operator CLI scripts] --> S
 ```
 
-The public edge terminates TLS, normalizes the trusted client address and routes requests. The API and database are not directly exposed publicly. Next.js never signs JWTs or writes database records. API authorization is authoritative even if a page guard is bypassed.
+Vercel terminates TLS and serves both pages and `/api/v1` Route Handlers from one origin. PostgreSQL is never exposed publicly. Client Components never import `src/server/`, Prisma, or secrets. Route Handler authorization is authoritative even if a page guard is bypassed.
 
-Use scoped database sessions, never shared between concurrent requests. The permission dependency uses a short read session and closes it before returning principal IDs. A mutation service opens a fresh session, owns `session.begin()`, acquires its guard and reloads authority inside that transaction. This avoids reusing SQLAlchemy's already started read transaction or stale identity objects. Read services use their own short session. Routers map errors; helpers may flush but never secretly commit. Close/rollback on every failure. No repository abstraction or event bus is needed. SMTP happens outside database transactions with explicit challenge delivery state.
+Use a singleton Prisma client in `src/server/db/prisma.ts` (safe for Next.js dev hot reload). Permission helpers open a short read query to validate the session and user before returning principal IDs. Mutation services open `prisma.$transaction(async (tx) => ...)`, acquire the PostgreSQL transaction advisory lock via `tx.$executeRaw`, and reload authority inside that transaction. Route Handlers map domain errors to `ErrorView`; helpers never swallow errors. Nodemailer SMTP runs outside database transactions with explicit challenge delivery state.
 
 ## Minimal directory structure
 
 ```text
 frontend/
-  src/app/(auth)/             login, register, verify, pending, recovery
-  src/app/(portal)/           overview, members, groups, ledger, account, admin
-  src/components/ui/          shadcn/ui primitives
-  src/components/finance/     cards, tables, forms, filters, navigation
-  src/lib/                   api.ts, contracts.ts, money.ts
-  tests/e2e/
-backend/
-  app/main.py
-  app/core/                  config.py, security.py, dependencies.py, errors.py
-  app/db/                    session.py, base.py
-  app/routers/               auth.py, members.py, groups.py, finance.py, admin.py
-  app/services/              identity.py, otp.py, mail.py, roster.py, finance.py, audit.py
-  app/models/                identity.py, roster.py, finance.py, audit.py
-  app/schemas/               auth.py, roster.py, finance.py, admin.py
-  app/cli.py
-  migrations/
-  tests/                     unit/, integration/
-infra/                       local composition and reverse proxy configuration
-docs/scope/                  approved requirements
-docs/specs/                  these contracts
+  prisma/
+    schema.prisma             10-table PostgreSQL schema
+    migrations/               Prisma Migrate SQL migrations + triggers/partial indexes
+    scripts/                  Private operator CLI scripts (roster validate/import, admin provision)
+  src/
+    app/
+      (auth)/                 login, register, verify, pending, recovery
+      (portal)/               overview, members, groups, ledger, account, admin
+      api/v1/                 Next.js Route Handlers (health, auth, finance, members, groups, transactions, admin)
+    components/
+      ui/                     shadcn/ui primitives
+      finance/                cards, tables, forms, filters, navigation
+    server/                   server-only boundary (never imported by client components)
+      config.ts               validated server env config
+      db/                     prisma.ts, locks.ts
+      auth/                   jwt.ts (jose), password.ts (argon2), csrf.ts, guards.ts
+      services/               identity.ts, otp.ts, mail.ts, roster.ts, finance.ts, audit.ts
+      schemas/                zod request/response schemas
+      errors.ts               stable error codes and ErrorView mapper
+    lib/                      api.ts, contracts.ts, money.ts, utils.ts
+    features/, hooks/, services/, types/
+  tests/
+    unit/                     Vitest unit tests
+    integration/              Vitest PostgreSQL integration tests
+    e2e/                      Playwright browser tests
+docs/scope/                   approved requirements
+docs/specs/                   these contracts
 ```
 
-These are proposed paths only. No directories outside documentation have been created. Keep the supplied legacy directory and ZIP untouched and outside public deployment roots. Do not turn the directories into independent services or introduce a shared package build system.
+`frontend/` is already initialized with Next.js App Router, TypeScript, Tailwind CSS, and `shadcn/ui`. Keep the supplied legacy directory and ZIP untouched and outside public deployment roots. Do not introduce microservices or a separate backend runtime.
 
 ## Cross child contracts
 

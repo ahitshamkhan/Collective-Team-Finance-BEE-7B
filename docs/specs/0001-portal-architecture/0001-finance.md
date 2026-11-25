@@ -10,11 +10,11 @@ Scope AC-08 through AC-12, architecture AR-02, AR-04 and AR-05. One collective f
 
 ## Decision
 
-All monetary inputs are JSON strings matched to a plain positive decimal format with at most two fractional digits. Reject numeric JSON, exponent notation, NaN, infinity, negative/zero values and excess precision. Parse directly to Decimal; return a two decimal string. NUMERIC(14,2) is storage, not a substitute for validation since PostgreSQL can round excess input precision. (basis: approved exact accounting rules and PostgreSQL numeric behavior)
+All monetary inputs are JSON strings matched to a plain positive decimal format with at most two fractional digits (validated by Zod `.strict()`). Reject numeric JSON, exponent notation, NaN, infinity, negative/zero values and excess precision. Parse directly to `Prisma.Decimal` (`decimal.js`); return a two decimal string. `NUMERIC(14,2)` is storage, not a substitute for validation since PostgreSQL can round excess input precision. (basis: approved exact accounting rules and PostgreSQL numeric behavior)
 
 ### Common mutation transaction
 
-Use one fixed, documented PostgreSQL transaction advisory lock (`pg_advisory_xact_lock(260010)`) for sensitive successful account, roster, session and finance mutations. This serializes these short operations across workers. Never hold it while password hashing or SMTP runs. Hash first, then verify the locked user's password hash/version has not changed before using the result. Failed OTP attempts and rate counters use their own atomic updates and row locks; when an operation needs the guard, acquire it before any account/challenge/transaction row locks.
+Use one fixed, documented PostgreSQL transaction advisory lock (`SELECT pg_advisory_xact_lock(260010)` via `tx.$executeRaw`) inside `prisma.$transaction` for sensitive successful account, roster, session and finance mutations. This serializes these short operations across serverless/worker instances. Never hold it while Argon2id password hashing or Nodemailer SMTP runs. Hash first, then verify the locked user's password hash/version has not changed before using the result. Failed OTP attempts and rate counters use their own atomic updates and row locks; when an operation needs the guard, acquire it before any account/challenge/transaction row locks.
 
 Within the guard recheck actor session, status and permission. Account suspension, logout, password reset and roster reassignment use the same guard, so they cannot interleave halfway through an authorized financial mutation. Auth reads can be concurrent; a mutation's authorization is checked again inside this guard. For this scale the predictable behavior outweighs write throughput. Retry only known transient deadlock/serialization failures with the same idempotency key and a small bounded retry count; never retry an unknown success using a new key.
 
@@ -24,7 +24,7 @@ Within the guard recheck actor session, status and permission. Account suspensio
 2. Begin transaction, acquire mutation guard, recheck authorization and look for existing idempotency receipt for actor plus operation plus key.
 3. Normalize request values, hash canonical JSON. An existing matching receipt returns its stored result; a different hash returns 409. Authorization happens before replay.
 4. Read the member and current group. Capture group code/name and member name snapshots. For today's business date use this association. Earlier/future payment dates remain gated until business date and attribution policy is settled.
-5. Insert active deposit with backend UUID, Decimal amount, date, description, authenticated `recorded_by`, current admin name snapshot and database creation time. The recording administrator is the accepting administrator under the confirmed request; there is no separate client actor selector.
+5. Insert active deposit with server UUID, `Prisma.Decimal` amount, date, description, authenticated `recorded_by`, current admin name snapshot and database creation time. The recording administrator is the accepting administrator under the confirmed request; there is no separate client actor selector.
 6. Insert whitelisted audit event and completed idempotency receipt, then commit once. Return 201 with transaction projection. Any audit/constraint failure rolls back everything; no balance is stored independently.
 
 ### Expense creation
@@ -39,7 +39,7 @@ Same transaction pattern with `{title,amount,expense_date,category,group_id?,ass
 
 ### Read calculations
 
-Execute summary aggregates in a single SQL statement over active rows (or one consistent snapshot for a multi query detail response). Use `COALESCE(SUM(...),0)` and Decimal serialization, never float. The filters below do not change global totals.
+Execute summary aggregates in a single SQL statement over active rows (or one consistent snapshot for a multi query detail response). Use `COALESCE(SUM(...),0)` and `Prisma.Decimal` serialization, never JavaScript `number` float. The filters below do not change global totals.
 
 | Read | Calculation |
 |---|---|

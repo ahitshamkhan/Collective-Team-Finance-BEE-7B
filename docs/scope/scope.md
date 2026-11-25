@@ -16,11 +16,11 @@ The following technologies are your requirements, not new tool selections made d
 | Layer | Confirmed constraint |
 |---|---|
 | Frontend | Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui |
-| Backend | FastAPI modular monolith, Python, Pydantic, synchronous SQLAlchemy ORM and Psycopg, Alembic |
-| Database | PostgreSQL |
-| Authentication | JWT in secure HttpOnly cookies, CSRF protection, PostgreSQL session revocation, Argon2id, PostgreSQL OTP challenges and rate limits |
-| Testing | Pytest and Playwright for critical browser workflows |
-| Proposed delivery provider | Gmail SMTP with an App Password, subject to account readiness and delivery verification |
+| Backend | Next.js Route Handlers (`/api/v1`), TypeScript, Zod, server only services, Prisma ORM |
+| Database | PostgreSQL with Prisma Migrate |
+| Authentication | JWT (`jose`) in secure HttpOnly cookies, CSRF protection, PostgreSQL session revocation, Argon2id, PostgreSQL OTP challenges and rate limits |
+| Testing | Vitest and Playwright for critical browser workflows |
+| Proposed delivery | Gmail SMTP via Nodemailer with an App Password, subject to account readiness and delivery verification; Vercel proposed for hosting |
 | Prohibited in the replacement | Firebase, Firestore, Redis, Celery and microservices |
 
 Keep the legacy application and ZIP intact. Reuse useful visual design and workflows, not its authentication implementation, expense sharing model or mutable financial history. No production financial totals or private roster data may be embedded in public assets.
@@ -78,7 +78,7 @@ All 26 people, including the three administrators, have individual member record
 | BR-09 | An associated expense member is contextual information only. It does not create a debt, reimbursement entitlement or allocation. |
 | BR-10 | Do not invent contribution targets, individual outstanding balances or group budgets. Those values are absent unless explicitly defined and approved later. |
 | BR-11 | Current roster changes never silently rewrite historical attribution. An explicit historical correction follows the financial correction and audit workflow. |
-| BR-12 | Use PostgreSQL NUMERIC and Python Decimal, confirmed in your architecture request. Never use floating point for authoritative money. |
+| BR-12 | Use PostgreSQL NUMERIC and exact decimal arithmetic (`Prisma.Decimal` / `decimal.js`), confirmed in your architecture request. Never use floating point for authoritative money. |
 | BR-13 | Only active economic effects contribute to totals. Use voiding and replacement with mandatory reasons, confirmed in your architecture request. Never count both the original and replacement. |
 | BR-14 | The backend supplies financial IDs, administrator attribution, timestamps and controlled statuses. Browser supplied values cannot impersonate another administrator. |
 
@@ -111,7 +111,7 @@ All 26 people, including the three administrators, have individual member record
 | NFR-05 | P0 | Audit history is append only through application permissions. Ordinary application actions cannot edit or delete audit records. This does not claim protection from a privileged database operator. |
 | NFR-06 | P0 | Use environment based secrets. Public responses, static files and client bundles expose no private roster, account information, password hashes, OTP hashes, JWT secrets or SMTP credentials. Approved finance views disclose only the intended shared fields. |
 | NFR-07 | P0 | Backend OTP and authentication abuse controls work without Redis or Celery and remain effective across application workers and restarts. Thresholds beyond the specified OTP limits require a spec. |
-| NFR-08 | P0 | Pytest covers accounting, authorization, OTP, sessions, constraints and transaction integrity. Playwright proves critical registration, admin login, approvals, finance and revocation journeys. |
+| NFR-08 | P0 | Vitest covers accounting, authorization, OTP, sessions, constraints and transaction integrity. Playwright proves critical registration, admin login, approvals, finance and revocation journeys. |
 | NFR-09 | P0 | Provide responsive layouts, clear errors, empty states and safe retry behavior. Proposed accessibility baseline: keyboard operation, associated labels, visible focus and correctly managed dialogs. No accessibility certification is claimed. |
 | NFR-10 | P0 | Proposed release baseline: HTTPS, separated test and production secrets/data, repeatable migrations, backup and restore verification, operational error visibility with secret redaction and a rollback procedure. Hosting and recovery targets remain unresolved. |
 | NFR-11 | P0 | Scope is sized for 26 authorized people. Complete histories must remain navigable as transaction volume grows. Pagination, expected history volume and measurable performance thresholds require architecture input. |
@@ -217,8 +217,8 @@ Define a minimal runnable replacement using your confirmed stack. The legacy fou
 Spec: [0001](../specs/0001-portal-architecture/index.md). Technical design approved; unresolved policy gates remain as documented.
 
 - [ ] Build it: `/develop replacement application foundation`
-  - [ ] Runnable frontend/backend and safe configuration (T01; AR-01, AR-07, AC-14).
-  - [ ] Same origin routing, health/errors and initial shell (T02; AR-01, AR-05, AC-13).
+  - [x] Next.js App Router, TypeScript, Tailwind CSS, shadcn/ui, and safe frontend env template (`frontend/` initialized, T01 frontend).
+  - [ ] Prisma ORM, PostgreSQL connection, server only configuration, `/api/v1/health/live`, error envelope, and initial shell (T01 backend/DB, T02; AR-01, AR-05, AR-07, AC-13, AC-14).
 - [ ] Verify it: `/check verify replacement application foundation`
 - [ ] Test it: `/test replacement application foundation`
 - [ ] Review it (fresh model): `/check review replacement application foundation`
@@ -261,7 +261,8 @@ Translate useful legacy patterns into maintainable components, accessible forms 
 Spec: [0001](../specs/0001-portal-architecture/0001-interface.md). Technical design approved; unresolved policy gates remain as documented.
 
 - [ ] Build it: `/develop reusable finance interface foundation`
-  - [ ] Shared teal shell and safe public rendering (T02; AR-01, AR-05, AC-13).
+  - [x] UI iteration, 25 November 2026: Tailwind PostCSS, shadcn controls, responsive shell, shared states and synthetic development preview built. Code: `frontend/src/components/finance/`, `frontend/src/components/ui/`, `frontend/src/app/dev/preview/`. No production preview or real data fallback.
+  - [x] Shared teal shell and safe public rendering (T02 UI only; AR-01, AR-05, AC-13). Code: `frontend/src/components/finance/portal-shell.tsx`, `frontend/src/app/(auth)/`, `frontend/src/app/(portal)/`. Secure API enforcement remains pending.
   - [ ] Reusable accessible forms, tables and navigation integrated with slices (T09, T12, T20; AC-13).
 - [ ] Verify it: `/check verify reusable finance interface foundation`
 - [ ] Test it: `/test reusable finance interface foundation`
@@ -281,6 +282,7 @@ Establish real member and admin access, secure session enforcement and uniquely 
 Spec: [0001](../specs/0001-portal-architecture/0001-identity.md). Technical design approved; unresolved policy gates remain as documented.
 
 - [ ] Build it: `/develop registration OTP approvals and authenticated access`
+  - [x] UI iteration, 25 November 2026: Login, registration, OTP, pending status and approval UI built with real API request contracts. Code: `frontend/src/components/finance/auth-screen.tsx`, `frontend/src/components/finance/admin-dialogs.tsx`. Authentication, email delivery and persisted approvals remain unimplemented.
   - [ ] Permission/session/CSRF and persisted OTP limits (T05, T06; AC-03, AC-04, AC-06, AC-07).
   - [ ] Admin OTP, registration and unique approvals (T07, T08; AR-02, AC-02, AC-05, AC-12).
   - [ ] Real authentication and approval interfaces (T09; AR-02, AR-05, AC-02 through AC-07).
@@ -300,6 +302,7 @@ An OTP authenticated FIP Lead records a verified deposit, and an approved member
 Spec: [0001](../specs/0001-portal-architecture/0001-finance.md). Technical design approved; unresolved policy gates remain as documented.
 
 - [ ] Build it: `/develop verified deposit through shared overview`
+  - [x] UI iteration, 25 November 2026: Deposit form, history and collective summary UI built. Code: `frontend/src/components/finance/financial-forms.tsx`, `frontend/src/components/finance/workspace-view.tsx`. Decimal strings and request keys are preserved; database writes and totals remain pending.
   - [ ] Atomic deposit, audit and duplicate receipt (T10; AC-08 through AC-12).
   - [ ] Real summary/ledger and browser deposit path (T11, T12; AR-02, AR-05, AC-13).
   - [ ] First slice race, rollback and permission verification (T13; AR-03, AR-04, AC-03, AC-06, AC-07, AC-09, AC-12).
@@ -321,6 +324,7 @@ Record group or collective expenses and show their effect on the shared fund wit
 Spec: [0001](../specs/0001-portal-architecture/0001-finance.md). Technical design approved; unresolved policy gates remain as documented.
 
 - [ ] Build it: `/develop expense recording and collective totals`
+  - [x] UI iteration, 25 November 2026: Expense form and history UI built, including group or collective attribution and optional member context. Code: `frontend/src/components/finance/financial-forms.tsx`. No expense allocation or backend calculation implemented.
   - [ ] Expense validation and atomic persistence after policy resolution (T14; AC-08 through AC-10).
   - [ ] Expense interface and collective/group calculations (T15; AC-08, AC-10, AC-13).
 - [ ] Verify it: `/check verify expense recording and collective totals`
@@ -341,6 +345,7 @@ Expose safe correction workflows and administrator audit history. Audit capture 
 Spec: [0001](../specs/0001-portal-architecture/0001-finance.md). Technical design approved; unresolved policy gates remain as documented.
 
 - [ ] Build it: `/develop corrections and financial audit history`
+  - [x] UI iteration, 25 November 2026: Void, replacement and audit detail UI built. Code: `frontend/src/components/finance/financial-forms.tsx`, `frontend/src/components/finance/admin-tables.tsx`. No persistence, immutable history or atomic audit guarantee is claimed.
   - [ ] Immutable facts and safe void/replacement after attribution decision (T16; AR-04, AC-11, AC-12).
   - [ ] Correction interface and preserved history (T17; AC-11, AC-13).
   - [ ] Audit projections and permissions (T18; AC-07, AC-12).
@@ -362,6 +367,7 @@ Complete member details, group records, ledger history and useful search/filteri
 Spec: [0001](../specs/0001-portal-architecture/0001-interface.md). Technical design approved; unresolved policy gates remain as documented.
 
 - [ ] Build it: `/develop member group and ledger transparency`
+  - [x] UI iteration, 25 November 2026: Member/group lists and details, transaction search, filters and pagination UI built. Code: `frontend/src/components/finance/roster-tables.tsx`, `frontend/src/components/finance/transaction-filters.tsx`. Real service integration remains pending.
   - [ ] Member/group history and P0 filters (T19; AC-10, AC-13).
   - [ ] Responsive shared views and audit navigation (T20; AR-05, AC-07, AC-13).
 - [ ] Verify it: `/check verify member group and ledger transparency`
@@ -382,6 +388,7 @@ Complete recovery, My account, suspension controls and audited member/group edit
 Spec: [0001](../specs/0001-portal-architecture/0001-identity.md). Technical design approved; unresolved policy gates remain as documented.
 
 - [ ] Build it: `/develop account lifecycle and roster administration`
+  - [x] UI iteration, 25 November 2026: Account password/session controls, roster edits and account suspension/restore UI built. Code: `frontend/src/components/finance/account-panel.tsx`, `frontend/src/components/finance/admin-dialogs.tsx`. Secure lifecycle services remain pending.
   - [ ] Recovery, revocation and audited roster lifecycle after policy resolution (T21; AC-06, AC-10, AC-12).
   - [ ] Account and administration interfaces with private state cleanup (T22; AC-06, AC-07, AC-13).
 - [ ] Verify it: `/check verify account lifecycle and roster administration`
@@ -436,13 +443,13 @@ These are not silently confirmed requirements. They can be settled during scope 
 | D-02 | Verified roster, group mapping and three administrator identities | Privately validate all 26 records; do not infer identities from legacy leadership flags | Production provisioning and imports |
 | D-03 | Legacy chassis category | Treat as collective expense category, subject to mapping validation; never create an eleventh member group | Migration acceptance |
 | D-04 | Existing live transactions to migrate | Confirm whether historical records exist and define cutover/reconciliation. Never import legacy expense shares or trust derived legacy balances | Migration and launch |
-| D-05 | Hosting, domain, budget and operator | Not selected; approve a deployment topology for the supplied stack | Deployment specification |
+| D-05 | Hosting, domain, budget and operator | Vercel proposed for Next.js hosting with managed PostgreSQL; confirm account, custom domain and operator ownership | Deployment specification |
 | D-06 | Gmail SMTP readiness | Proposed initial provider only; confirm sender ownership, App Password availability, permitted use and OTP delivery in the target environment | Email integration and launch |
 | D-07 | Session transport and revocation confirmed | HttpOnly cookie JWT, CSRF and PostgreSQL revocation selected; lifetimes and protocol ratified in architecture 0001 | Resolved technical design |
 | D-08 | Recovery mechanism and OTP delivery failure behavior | Propose purpose bound email recovery, resend invalidation and revoking all sessions after reset; decide retry and user feedback without background infrastructure expansion | Recovery implementation |
 | D-09 | Admin provisioning confirmed; emergency authority unresolved | Secure CLI provisioning of exactly three fixed identities; no public promotion flow. All admins locked out recovery authority remains to be confirmed | Bootstrap inputs and operational readiness |
 | D-10 | Suspension of admins and protection from total admin lockout | Confirm who may suspend another FIP Lead and how the last usable admin is protected; do not invent an owner role | Account management specification |
-| D-11 | Representation confirmed; business limits unresolved | PostgreSQL NUMERIC and Python Decimal selected. Architecture defines technical precision/ceiling; lower business cap and permitted dates still require confirmation | Financial policy confirmation |
+| D-11 | Representation confirmed; business limits unresolved | PostgreSQL NUMERIC and exact decimal arithmetic (`Prisma.Decimal` / `decimal.js`) selected. Architecture defines technical precision/ceiling; lower business cap and permitted dates still require confirmation | Financial policy confirmation |
 | D-12 | Spending beyond available funds | Undecided whether to block, warn or allow a negative collective balance; never clamp or hide it | Expense acceptance policy |
 | D-13 | Correction method confirmed | Void and replacement with mandatory reasons; historical correction attribution policy still unresolved | Historical attribution policy |
 | D-14 | Accepting administrator confirmed | Authenticated accepting/recording administrator, no client supplied alternate actor | Resolved for MVP |
@@ -466,7 +473,7 @@ These are not silently confirmed requirements. They can be settled during scope 
 
 The MVP is ready for release only when all P0 requirements and acceptance criteria are met, all required pages work on desktop and mobile, and remaining decisions affecting those requirements have been resolved explicitly.
 
-Pytest and Playwright prove the critical flows, exact accounting, direct API authorization, OTP edge cases, session revocation and concurrency protection. GA verification includes the real application, independent review and release documentation. No unresolved high impact authorization, privacy, accounting or data loss defect remains.
+Pytest references are replaced by Vitest. Vitest and Playwright prove the critical flows, exact accounting, direct API authorization, OTP edge cases, session revocation and concurrency protection. GA verification includes the real application, independent review and release documentation. No unresolved high impact authorization, privacy, accounting or data loss defect remains.
 
 The production roster and allowed administrators are validated; financial totals reconcile; no automatic expense sharing, invented budgets, public private data or hardcoded financial totals remain. Email and deployment checks pass in the target environment. Recovery and rollback have been rehearsed. No real financial record or account is changed without separate authorization for migration or release.
 
@@ -478,6 +485,6 @@ P1 may be deferred explicitly. P2 and exclusions do not block MVP completion. Sc
 
 A `needs a decision` tag means architecture must resolve the feature contract. Each undesigned feature has one future entry command. The architecture step can split distinct decisions into separate specs and add build/verify/test/review milestones here; atomic implementation tasks belong in the specs, not this scope.
 
-No root AGENTS.md currently exists. After permission to proceed and foundation scaffolding, the planned audit establishes durable context for the replacement. The earlier read only audit remains the legacy baseline; it did not authorize context file writes.
+A root `AGENTS.md` now records the revised full stack Next.js conventions. After foundation scaffolding completes, the planned audit refines durable context for the replacement.
 
-**Recommended next step when you authorize development:** the first development command is `/develop replacement application foundation`, bounded to T01 and T02 before the context audit and remaining first slice work. No development has started.
+**Recommended next step when you authorize development:** the first development command is `/develop replacement application foundation`, bounded to completing Prisma/PostgreSQL setup in T01 and T02 before the context audit and remaining first slice work. The Next.js + shadcn/ui frontend foundation is already initialized in `frontend/`.
