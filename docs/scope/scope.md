@@ -263,7 +263,7 @@ Spec: [0001](../specs/0001-portal-architecture/0001-interface.md). Technical des
 - [ ] Build it: `/develop reusable finance interface foundation`
   - [x] UI iteration, 25 November 2026: Tailwind PostCSS, shadcn controls, responsive shell, shared states and synthetic development preview built. Code: `frontend/src/components/finance/`, `frontend/src/components/ui/`, `frontend/src/app/dev/preview/`. No production preview or real data fallback.
   - [x] Shared teal shell and safe public rendering (T02 UI only; AR-01, AR-05, AC-13). Code: `frontend/src/components/finance/portal-shell.tsx`, `frontend/src/app/(auth)/`, `frontend/src/app/(portal)/`. Secure API enforcement remains pending.
-  - [ ] Reusable accessible forms, tables and navigation integrated with slices (T09, T12, T20; AC-13).
+  - [x] Reusable accessible forms, tables and navigation integrated with slices (T09, T12, T20; AC-13). Module 14 reuses `frontend/src/components/finance/` and the existing API wrapper; real browser workflows use isolated synthetic data and mock SMTP.
 - [ ] Verify it: `/check verify reusable finance interface foundation`
 - [ ] Test it: `/test reusable finance interface foundation`
 - [ ] Review it (fresh model): `/check review reusable finance interface foundation`
@@ -283,9 +283,9 @@ Spec: [0001](../specs/0001-portal-architecture/0001-identity.md). Technical desi
 
 - [ ] Build it: `/develop registration OTP approvals and authenticated access`
   - [x] UI iteration, 25 November 2026: Login, registration, OTP, pending status and approval UI built with real API request contracts. Code: `frontend/src/components/finance/auth-screen.tsx`, `frontend/src/components/finance/admin-dialogs.tsx`. Authentication, email delivery and persisted approvals remain unimplemented.
-  - [ ] Permission/session/CSRF and persisted OTP limits (T05, T06; AC-03, AC-04, AC-06, AC-07).
-  - [ ] Admin OTP, registration and unique approvals (T07, T08; AR-02, AC-02, AC-05, AC-12).
-  - [ ] Real authentication and approval interfaces (T09; AR-02, AR-05, AC-02 through AC-07).
+  - [x] Permission/session/CSRF and persisted OTP limits (T05, T06; AC-03, AC-04, AC-06, AC-07). Backend built 27 November 2026 in `frontend/src/server/http.ts`, `frontend/src/server/services/otp.ts`, and `frontend/src/server/services/mail.ts`; synthetic PostgreSQL and mock SMTP verified. Live sender and trusted proxy configuration remain outstanding.
+  - [x] Admin OTP, registration and unique approvals (T07, T08; AR-02, AC-02, AC-05, AC-12). Backend built in `frontend/src/server/services/identity.ts` and `frontend/src/server/auth-api.ts`; Module 14 browser integration verified with synthetic accounts.
+  - [x] Real authentication and approval interfaces (T09; AR-02, AR-05, AC-02 through AC-07). Module 14 verified registration, mandatory admin OTP, approval, rejection and member access in `frontend/tests/e2e/workflows.spec.ts`. Live Gmail delivery still needs operator configuration.
 - [ ] Verify it: `/check verify registration OTP approvals and authenticated access`
 - [ ] Test it: `/test registration OTP approvals and authenticated access`
 - [ ] Review it (fresh model): `/check review registration OTP approvals and authenticated access`
@@ -303,8 +303,8 @@ Spec: [0001](../specs/0001-portal-architecture/0001-finance.md). Technical desig
 
 - [ ] Build it: `/develop verified deposit through shared overview`
   - [x] UI iteration, 25 November 2026: Deposit form, history and collective summary UI built. Code: `frontend/src/components/finance/financial-forms.tsx`, `frontend/src/components/finance/workspace-view.tsx`. Decimal strings and request keys are preserved; database writes and totals remain pending.
-  - [ ] Atomic deposit, audit and duplicate receipt (T10; AC-08 through AC-12).
-  - [ ] Real summary/ledger and browser deposit path (T11, T12; AR-02, AR-05, AC-13).
+  - [x] Atomic deposit, audit and duplicate receipt (T10; AC-08 through AC-12). Built 27 November 2026 in `frontend/src/server/services/finance.ts`; exact totals, concurrent receipt replay, immutable history and audit failure rollback verified with synthetic data. Date and historical attribution policy guards remain enforced.
+  - [x] Real summary/ledger and browser deposit path (T11, T12; AR-02, AR-05, AC-13). Module 14 verified an administrator deposit and matching member overview/detail totals through the real APIs in `frontend/tests/e2e/workflows.spec.ts`.
   - [ ] First slice race, rollback and permission verification (T13; AR-03, AR-04, AC-03, AC-06, AC-07, AC-09, AC-12).
 - [ ] Verify it: `/check verify verified deposit through shared overview`
 - [ ] Test it: `/test verified deposit through shared overview`
@@ -347,8 +347,8 @@ Spec: [0001](../specs/0001-portal-architecture/0001-finance.md). Technical desig
 - [ ] Build it: `/develop corrections and financial audit history`
   - [x] UI iteration, 25 November 2026: Void, replacement and audit detail UI built. Code: `frontend/src/components/finance/financial-forms.tsx`, `frontend/src/components/finance/admin-tables.tsx`. No persistence, immutable history or atomic audit guarantee is claimed.
   - [ ] Immutable facts and safe void/replacement after attribution decision (T16; AR-04, AC-11, AC-12).
-  - [ ] Correction interface and preserved history (T17; AC-11, AC-13).
-  - [ ] Audit projections and permissions (T18; AC-07, AC-12).
+  - [x] Correction interface and preserved history (T17; AC-11, AC-13). Module 14 verified void, refreshed totals, preserved ledger status and audit history through the existing UI. Historical attribution and date guards remain enforced.
+  - [x] Audit projections and permissions (T18; AC-07, AC-12). Backend in `frontend/src/server/finance-api.ts`; member API denial verified. Runtime role has no audit DELETE privilege.
 - [ ] Verify it: `/check verify corrections and financial audit history`
 - [ ] Test it: `/test corrections and financial audit history`
 - [ ] Review it (fresh model): `/check review corrections and financial audit history`
@@ -368,8 +368,8 @@ Spec: [0001](../specs/0001-portal-architecture/0001-interface.md). Technical des
 
 - [ ] Build it: `/develop member group and ledger transparency`
   - [x] UI iteration, 25 November 2026: Member/group lists and details, transaction search, filters and pagination UI built. Code: `frontend/src/components/finance/roster-tables.tsx`, `frontend/src/components/finance/transaction-filters.tsx`. Real service integration remains pending.
-  - [ ] Member/group history and P0 filters (T19; AC-10, AC-13).
-  - [ ] Responsive shared views and audit navigation (T20; AR-05, AC-07, AC-13).
+  - [x] Member/group history and P0 filters (T19; AC-10, AC-13). Backend projections and filters in `frontend/src/server/finance-api.ts`; Module 14 connects detail endpoints in `frontend/src/components/finance/workspace.tsx` with strict response validation.
+  - [x] Responsive shared views and audit navigation (T20; AR-05, AC-07, AC-13). Module 14 verified member/group navigation, mobile overview and administrator audit history with real APIs; existing UI design is retained.
 - [ ] Verify it: `/check verify member group and ledger transparency`
 - [ ] Test it: `/test member group and ledger transparency`
 - [ ] Review it (fresh model): `/check review member group and ledger transparency`
@@ -390,7 +390,7 @@ Spec: [0001](../specs/0001-portal-architecture/0001-identity.md). Technical desi
 - [ ] Build it: `/develop account lifecycle and roster administration`
   - [x] UI iteration, 25 November 2026: Account password/session controls, roster edits and account suspension/restore UI built. Code: `frontend/src/components/finance/account-panel.tsx`, `frontend/src/components/finance/admin-dialogs.tsx`. Secure lifecycle services remain pending.
   - [ ] Recovery, revocation and audited roster lifecycle after policy resolution (T21; AC-06, AC-10, AC-12).
-  - [ ] Account and administration interfaces with private state cleanup (T22; AC-06, AC-07, AC-13).
+  - [x] Account and administration interfaces with private state cleanup (T22; AC-06, AC-07, AC-13). Module 14 verified recovery, password change, logout, suspension, restoration and roster edits. `frontend/src/components/finance/workspace.tsx` cancels stale reads and clears retained private pages on session loss. Administrator suspension remains policy guarded.
 - [ ] Verify it: `/check verify account lifecycle and roster administration`
 - [ ] Test it: `/test account lifecycle and roster administration`
 - [ ] Review it (fresh model): `/check review account lifecycle and roster administration`

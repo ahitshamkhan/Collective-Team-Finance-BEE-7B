@@ -42,3 +42,16 @@ next-env.d.ts
 
 /playwright-report/
 /test-results/
+
+/src/generated/prisma
+
+
+# Local AI agent files
+.claude/
+.windsurf/
+.agents/
+skills-lock.json
+
+# Temporary security audit reports
+audit-module15-before.json
+audit-module15-production-before.json

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -66,11 +66,15 @@ export function Workspace({ screen, id }: { screen: Screen; id?: string }) {
   } | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const activeRead = useRef<AbortController | null>(null);
   const refresh = useCallback(() => setRevision((n) => n + 1), []);
   useEffect(() => {
     const logout = () => {
+      activeRead.current?.abort();
       setState(null);
-      router.replace("/login");
+      // A document navigation also discards hidden pages retained by Next's
+      // client router, so a previous user's private DOM cannot be restored.
+      window.location.replace("/login");
     };
     window.addEventListener("portal:unauthorized", logout);
     window.addEventListener("focus", refresh);
@@ -80,11 +84,23 @@ export function Workspace({ screen, id }: { screen: Screen; id?: string }) {
     };
   }, [router, refresh]);
   useEffect(() => {
+    if (!state) return;
+    const timeout = setTimeout(
+      () => {
+        window.dispatchEvent(new Event("portal:unauthorized"));
+      },
+      Math.max(0, Date.parse(state.profile.session_expires_at) - Date.now()),
+    );
+    return () => clearTimeout(timeout);
+  }, [state]);
+  useEffect(() => {
     const abort = new AbortController();
+    activeRead.current = abort;
     const read = <T,>(route: string) => api<T>(route, { signal: abort.signal });
     async function load() {
       try {
         const profile = await read<SelfView>("/auth/me");
+        if (abort.signal.aborted) return;
         if (
           profile.status !== "approved" ||
           profile.session_kind !== "full" ||
@@ -147,6 +163,17 @@ export function Workspace({ screen, id }: { screen: Screen; id?: string }) {
             ? read<WorkspaceData["available"]>("/admin/members/available")
             : Promise.resolve([]),
         ]);
+        if (screen === "member-detail" && id) {
+          const detail = await read<MemberView>(`/members/${id}`);
+          members.items = members.items.map((member) =>
+            member.id === id ? detail : member,
+          );
+        }
+        if (screen === "group-detail" && id) {
+          const detail = await read<GroupView>(`/groups/${id}`);
+          const index = groups.findIndex((group) => group.id === id);
+          if (index >= 0) groups[index] = detail;
+        }
         if (!abort.signal.aborted) {
           setState({
             profile,
@@ -183,8 +210,9 @@ export function Workspace({ screen, id }: { screen: Screen; id?: string }) {
   async function logout() {
     try {
       await api("/auth/logout", { method: "POST", body: "{}" });
+      activeRead.current?.abort();
       setState(null);
-      router.replace("/login");
+      window.location.replace("/login");
     } catch (e) {
       setState(null);
       setError((e as Error).message);
@@ -214,6 +242,7 @@ export function Workspace({ screen, id }: { screen: Screen; id?: string }) {
   return (
     <div aria-busy={loading}>
       <WorkspaceView
+        key={`${path}:${state.profile.user_id}:${state.profile.role}`}
         screen={screen}
         id={id}
         path={path}

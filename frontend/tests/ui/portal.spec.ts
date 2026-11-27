@@ -1,5 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
-import { fixtureData, fixtureProfile } from "../../src/dev/fixtures";
+import {
+  fixtureData,
+  fixtureProfile as expiredFixtureProfile,
+} from "../../src/dev/fixtures";
+const fixtureProfile = {
+  ...expiredFixtureProfile,
+  session_expires_at: new Date(Date.now() + 3600000).toISOString(),
+};
 const production = process.env.PORTAL_TEST_PRODUCTION === "1";
 test.describe("Development presentation", () => {
   test.skip(
@@ -332,7 +339,10 @@ test("production excludes development fixtures and preview screens", async ({
     page.getByText("Open synthetic interface preview", { exact: false }),
   ).toHaveCount(0);
   await page.goto("/overview", { waitUntil: "domcontentloaded" });
-  await expect(page.locator("main").getByRole("alert")).toBeVisible();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(
+    page.getByRole("heading", { name: "Welcome back" }),
+  ).toBeVisible();
   await expect(page.getByText("PKR 96,500.00", { exact: true })).toHaveCount(0);
 });
 test("admin deposit requests retain an idempotency key across uncertain failures", async ({

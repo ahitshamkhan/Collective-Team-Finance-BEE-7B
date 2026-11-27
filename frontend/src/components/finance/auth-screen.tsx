@@ -167,6 +167,12 @@ export function AuthScreen({
   useEffect(() => {
     if (mode !== "pending") return;
     const abort = new AbortController();
+    const unauthorized = () => {
+      abort.abort();
+      setProfile(null);
+      router.replace("/login");
+    };
+    window.addEventListener("portal:unauthorized", unauthorized);
     api<SelfView>("/auth/me", { signal: abort.signal })
       .then((p) => {
         if (!abort.signal.aborted) setProfile(p);
@@ -174,8 +180,11 @@ export function AuthScreen({
       .catch((e) => {
         if (!abort.signal.aborted) setError((e as Error).message);
       });
-    return () => abort.abort();
-  }, [mode]);
+    return () => {
+      abort.abort();
+      window.removeEventListener("portal:unauthorized", unauthorized);
+    };
+  }, [mode, router]);
   async function resend() {
     setBusy(true);
     setError("");
@@ -275,6 +284,7 @@ export function AuthScreen({
     setBusy(true);
     try {
       await api("/auth/logout", { method: "POST", body: "{}" });
+      setProfile(null);
       router.replace("/login");
     } catch (e) {
       failed(e);
