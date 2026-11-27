@@ -1,0 +1,241 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ======================================================
+// 01. GROUP
+// ======================================================
+
+model Group {
+  id        String   @id @db.Uuid
+  code      String   @unique @db.VarChar(16)
+  name      String   @db.VarChar(180)
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  members      Member[]
+  transactions Transaction[]
+
+  @@map("groups")
+}
+
+// ======================================================
+// 02. MEMBER
+// ======================================================
+
+model Member {
+  id        String   @id @db.Uuid
+  rosterKey String   @unique @map("roster_key") @db.VarChar(64)
+  name      String   @db.VarChar(140)
+  groupId   String   @map("group_id") @db.Uuid
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  group           Group            @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  authorizedAdmin AuthorizedAdmin?
+  user            User?
+  transactions    Transaction[]
+
+  @@index([groupId])
+  @@map("members")
+}
+
+// ======================================================
+// 03. AUTHORIZED ADMIN
+// ======================================================
+
+model AuthorizedAdmin {
+  slot            Int      @id @db.SmallInt
+  memberId        String   @unique @map("member_id") @db.Uuid
+  emailNormalized String   @unique @map("email_normalized") @db.VarChar(254)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  @@map("authorized_admins")
+}
+
+// ======================================================
+// 04. USER
+// ======================================================
+
+model User {
+  id                     String    @id @db.Uuid
+  emailNormalized        String    @unique @map("email_normalized") @db.VarChar(254)
+  name                   String    @db.VarChar(140)
+  passwordHash           String    @map("password_hash") @db.Text
+  memberId               String?   @unique @map("member_id") @db.Uuid
+  emailVerifiedAt        DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  status                 String    @db.VarChar(16)
+  statusBeforeSuspension String?   @map("status_before_suspension") @db.VarChar(16)
+  reviewedBy             String?   @map("reviewed_by") @db.Uuid
+  reviewedAt             DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewReason           String?   @map("review_reason") @db.VarChar(500)
+  version                Int       @default(1)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  member           Member? @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  reviewer         User?   @relation("UserReviews", fields: [reviewedBy], references: [id], onDelete: Restrict)
+  reviewedAccounts User[]  @relation("UserReviews")
+
+  sessions             Session[]
+  otpChallenges        OtpChallenge[]
+  recordedTransactions Transaction[]        @relation("RecordedTransactions")
+  voidedTransactions   Transaction[]        @relation("VoidedTransactions")
+  auditEvents          AuditEvent[]
+  idempotencyRequests  IdempotencyRequest[]
+
+  @@index([status, createdAt, id])
+  @@map("users")
+}
+
+// ======================================================
+// 05. SESSION
+// ======================================================
+
+model Session {
+  id         String    @id @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  kind       String    @db.VarChar(16)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  adminOtpAt DateTime? @map("admin_otp_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ======================================================
+// 06. OTP CHALLENGE
+// ======================================================
+
+model OtpChallenge {
+  id             String    @id @db.Uuid
+  userId         String?   @map("user_id") @db.Uuid
+  purpose        String    @db.VarChar(24)
+  flowSecretHash Bytes     @map("flow_secret_hash") @db.ByteA
+  codeHmac       Bytes?    @map("code_hmac") @db.ByteA
+  generation     Int
+  attempts       Int       @db.SmallInt
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  lastSentAt     DateTime  @map("last_sent_at") @db.Timestamptz(6)
+  consumedAt     DateTime? @map("consumed_at") @db.Timestamptz(6)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+  deliveryState  String    @map("delivery_state") @db.VarChar(16)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([expiresAt])
+  @@map("otp_challenges")
+}
+
+// ======================================================
+// 07. RATE LIMIT BUCKET
+// ======================================================
+
+model RateLimitBucket {
+  key         String   @db.Text
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  count       Int
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@id([key, windowStart])
+  @@index([expiresAt])
+  @@map("rate_limit_buckets")
+}
+
+// ======================================================
+// 08. FINANCIAL TRANSACTION
+// ======================================================
+
+model Transaction {
+  id                     String    @id @db.Uuid
+  kind                   String    @db.VarChar(8)
+  amount                 Decimal   @db.Decimal(14, 2)
+  businessDate           DateTime  @map("business_date") @db.Date
+  memberId               String?   @map("member_id") @db.Uuid
+  groupId                String?   @map("group_id") @db.Uuid
+  expenseCategory        String?   @map("expense_category") @db.VarChar(16)
+  title                  String?   @db.VarChar(160)
+  description            String    @db.VarChar(1000)
+  memberNameSnapshot     String?   @map("member_name_snapshot") @db.VarChar(140)
+  groupCodeSnapshot      String?   @map("group_code_snapshot") @db.VarChar(16)
+  groupNameSnapshot      String?   @map("group_name_snapshot") @db.VarChar(180)
+  recordedBy             String    @map("recorded_by") @db.Uuid
+  recordedByNameSnapshot String    @map("recorded_by_name_snapshot") @db.VarChar(140)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  status                 String    @db.VarChar(8)
+  voidedBy               String?   @map("voided_by") @db.Uuid
+  voidedAt               DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason             String?   @map("void_reason") @db.VarChar(500)
+  replacesId             String?   @unique @map("replaces_id") @db.Uuid
+
+  member   Member? @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  group    Group?  @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  recorder User    @relation("RecordedTransactions", fields: [recordedBy], references: [id], onDelete: Restrict)
+  voider   User?   @relation("VoidedTransactions", fields: [voidedBy], references: [id], onDelete: Restrict)
+
+  replaces   Transaction? @relation("TransactionReplacement", fields: [replacesId], references: [id], onDelete: Restrict)
+  replacedBy Transaction? @relation("TransactionReplacement")
+
+  @@index([businessDate(sort: Desc), createdAt(sort: Desc), id(sort: Desc)])
+  @@index([recordedBy])
+  @@map("transactions")
+}
+
+// ======================================================
+// 09. AUDIT EVENT
+// ======================================================
+
+model AuditEvent {
+  id           String   @id @db.Uuid
+  actorUserId  String?  @map("actor_user_id") @db.Uuid
+  actorKind    String   @map("actor_kind") @db.VarChar(12)
+  actorLabel   String   @map("actor_label") @db.VarChar(140)
+  operation    String   @db.VarChar(64)
+  entityType   String   @map("entity_type") @db.VarChar(32)
+  entityId     String?  @map("entity_id") @db.Uuid
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  requestId    String   @map("request_id") @db.Uuid
+  beforeValues Json?    @map("before_values") @db.JsonB
+  afterValues  Json?    @map("after_values") @db.JsonB
+  reason       String?  @db.VarChar(500)
+
+  actor User? @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([occurredAt(sort: Desc), id(sort: Desc)])
+  @@index([entityType, entityId, occurredAt])
+  @@map("audit_events")
+}
+
+// ======================================================
+// 10. IDEMPOTENCY REQUEST
+// ======================================================
+
+model IdempotencyRequest {
+  id             String   @id @db.Uuid
+  actorUserId    String   @map("actor_user_id") @db.Uuid
+  operation      String   @db.VarChar(64)
+  key            String   @db.Uuid
+  requestHash    Bytes    @map("request_hash") @db.ByteA
+  responseStatus Int      @map("response_status") @db.SmallInt
+  responseBody   Json     @map("response_body") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([actorUserId, operation, key])
+  @@map("idempotency_requests")
+}

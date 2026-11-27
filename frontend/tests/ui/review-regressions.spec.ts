@@ -1,5 +1,12 @@
 import { test, expect, type Page } from "@playwright/test";
-import { fixtureData, fixtureProfile } from "../../src/dev/fixtures";
+import {
+  fixtureData,
+  fixtureProfile as expiredFixtureProfile,
+} from "../../src/dev/fixtures";
+const fixtureProfile = {
+  ...expiredFixtureProfile,
+  session_expires_at: new Date(Date.now() + 3600000).toISOString(),
+};
 
 test("detail filters show and retain the route context", async ({ page }) => {
   await setup(page);
@@ -84,6 +91,13 @@ async function setup(page: Page) {
         page_size: 100,
       },
       "/api/v1/groups": fixtureData.groups,
+      [`/api/v1/members/${fixtureData.members[0].id}`]: fixtureData.members[0],
+      [`/api/v1/groups/${fixtureData.groups[0].id}`]: {
+        ...fixtureData.groups[0],
+        members: fixtureData.members
+          .filter((m) => m.current_group.id === fixtureData.groups[0].id)
+          .map((m) => ({ id: m.id, name: m.name })),
+      },
       "/api/v1/transactions": fixtureData.transactions,
     };
     await r.fulfill({
@@ -190,6 +204,27 @@ test("CSRF session rejection clears private modal and redirects to login", async
     }),
   );
   await page.getByRole("button", { name: "Confirm void" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+// Covers AC-06 and AC-07 even when the user makes no further API request.
+test("session expiry clears an idle private dialog and returns to login", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.clock.install();
+  const expires = new Date(Date.now() + 60000).toISOString();
+  await page.route("**/api/v1/auth/me", (route) =>
+    route.fulfill({ json: { ...fixtureProfile, session_expires_at: expires } }),
+  );
+  await page.goto("/ledger", { waitUntil: "domcontentloaded" });
+  await page
+    .getByRole("button", { name: "Correct", exact: true })
+    .first()
+    .click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.clock.fastForward(61000);
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });

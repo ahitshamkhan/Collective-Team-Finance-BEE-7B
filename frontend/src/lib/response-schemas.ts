@@ -143,6 +143,12 @@ export function parseResponse(
       .strict();
   else if (route === "/members") schema = page(member);
   else if (route === "/groups") schema = z.array(group);
+  else if (/^\/members\/[^/]+$/.test(route)) schema = member;
+  else if (/^\/groups\/[^/]+$/.test(route))
+    schema = group
+      .extend({ members: z.array(z.object({ id, name: z.string() }).strict()) })
+      .strict();
+  else if (/^\/transactions\/[^/]+$/.test(route)) schema = transaction;
   else if (route === "/transactions") schema = page(transaction);
   else if (
     route === "/deposits" ||

@@ -97,6 +97,11 @@ export function WorkspaceView({
   }
   const [correction, setCorrection] = useState<TransactionView | null>(null);
   const [action, setAction] = useState<AdminAction | null>(null);
+  const [notice, setNotice] = useState("");
+  const saved = () => {
+    setNotice("Changes saved.");
+    onRefresh();
+  };
   const admin = audience === "admin";
   const update = (changes: Partial<ViewQuery>) =>
     onQuery({ ...query, ...changes, page: changes.page ?? 1 });
@@ -282,6 +287,14 @@ export function WorkspaceView({
             <GroupTable groups={data.groups} href={href} />
           </Panel>
         </>
+      )}
+      {notice && (
+        <p
+          role="status"
+          className="mb-5 rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm"
+        >
+          {notice}
+        </p>
       )}
       {["members", "manage-members", "groups", "manage-groups"].includes(
         screen,
@@ -559,7 +572,7 @@ export function WorkspaceView({
           members={data.members}
           groups={data.groups}
           preview={preview}
-          onSaved={onRefresh}
+          onSaved={saved}
         />
       )}
       {admin && action && (
@@ -568,7 +581,7 @@ export function WorkspaceView({
           data={data}
           preview={preview}
           onClose={() => setAction(null)}
-          onSaved={onRefresh}
+          onSaved={saved}
         />
       )}
     </PortalShell>
