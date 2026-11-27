@@ -171,10 +171,12 @@ test("real member and administrator workflow with mock SMTP", async ({
       .click();
     const guardedResponse = await guarded;
     expect(guardedResponse.status()).toBe(409);
-    expect((await guardedResponse.json()).error.code).toBe("POLICY_UNRESOLVED");
+    expect((await guardedResponse.json()).error.code).toBe(
+      "INSUFFICIENT_FUNDS",
+    );
     await expect(
       admin.locator("main:visible").getByRole("alert"),
-    ).toContainText("unresolved");
+    ).toContainText("negative");
     await member.goto("/overview");
     await expect(member.locator("main:visible")).toContainText("0.00");
 

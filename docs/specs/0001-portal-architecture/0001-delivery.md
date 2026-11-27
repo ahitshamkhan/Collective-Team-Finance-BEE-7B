@@ -102,10 +102,10 @@ The first Tracer Bullet slice ends at T13, not after a frontend mockup. Expenses
 
 | Decision | Known boundary | Required resolution / gate |
 |---|---|---|
-| Overdraft | Never hide/clamp negative balance | Confirm block, warn or allow before T14 |
-| Backdated/future dates and business amount cap | Technical storage ceiling is not business permission | Confirm permitted dates and any lower cap before unrestricted deposit/expense release |
-| Backdated deposit/group correction | Current group is known, past membership is not supplied | Confirm explicit historical group selection or validated history; do not guess before T16 |
-| Admin suspension and last usable admin | Exactly three authorized identities, no invented owner role | Confirm who can suspend/restore another admin and emergency recovery authority before T21 |
+| Overdraft | Never hide/clamp negative balance | **Confirmed:** prohibit negative collective balance (`409 INSUFFICIENT_FUNDS`) on expenses, voids, and replacements |
+| Backdated/future dates and business amount cap | Technical storage ceiling is not business permission | **Confirmed:** allow past and current `Asia/Karachi` dates (`<= today()`); reject future dates (`422`); retain storage ceiling `999999999999.99` |
+| Backdated deposit/group correction | Current group is known, past membership is not supplied | **Confirmed:** allow authorized member/group attribution corrections via atomic void-and-replace with mandatory reason; replacement captures selected attribution while original preserves historical snapshots |
+| Admin suspension and last usable admin | Exactly three authorized identities, no invented owner role | **Confirmed:** restrict admin suspension/restoration to audited operator CLI (`admins suspend` / `admins restore`), blocking suspension of the last active admin; web API rejects admin targets (`403`) |
 | Rejected reapplication and identity relinking | No silent approval/reset of status | Confirm reapplication and email/member change policy; those mutations have no endpoints yet |
 | Roster and identities | Exactly 26/10/3 | Private validation inputs and authorization for provisioning before T26 |
 | Existing history | Legacy files do not prove production data contents | Confirm whether history exists and approve source mapping/provenance before T26 |

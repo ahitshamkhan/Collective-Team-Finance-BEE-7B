@@ -399,6 +399,132 @@ async function adminsProvision(
   }
 }
 
+async function adminLifecycle(
+  action: "suspend" | "restore",
+  email: string,
+  reason: string,
+  operatorLabel: string,
+  apply: boolean,
+): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const trimmedReason = reason.trim();
+  const trimmedOperator = operatorLabel.trim();
+
+  if (!normalizedEmail || !normalizedEmail.includes("@")) {
+    fatal("--email must be a valid email address");
+  }
+  if (trimmedReason.length < 5 || trimmedReason.length > 500) {
+    fatal("--reason must be between 5 and 500 characters");
+  }
+  if (!trimmedOperator) {
+    fatal("--operator must be a non-empty label");
+  }
+
+  if (!apply) {
+    console.log("DRY RUN — no changes applied. Add --apply to execute.");
+    console.log(`Would ${action} reserved administrator account: ${normalizedEmail}`);
+    return;
+  }
+
+  const prisma = createClient();
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(260010)`;
+
+      const adminSlot = await tx.authorizedAdmin.findUnique({
+        where: { emailNormalized: normalizedEmail },
+      });
+      if (!adminSlot) {
+        throw new Error(`No authorized administrator slot found for ${normalizedEmail}`);
+      }
+
+      const user = await tx.user.findUnique({
+        where: { emailNormalized: normalizedEmail },
+      });
+      if (!user || user.memberId !== adminSlot.memberId) {
+        throw new Error(`No linked administrator user account found for ${normalizedEmail}`);
+      }
+
+      if (action === "suspend") {
+        if (user.status === "suspended") {
+          throw new Error("Administrator account is already suspended");
+        }
+        const activeAdmins = await tx.user.count({
+          where: {
+            status: "approved",
+            member: { authorizedAdmin: { isNot: null } },
+          },
+        });
+        if (activeAdmins <= 1) {
+          throw new Error("Cannot suspend the last active authorized administrator");
+        }
+
+        const now = new Date();
+        const updated = await tx.user.update({
+          where: { id: user.id },
+          data: {
+            status: "suspended",
+            statusBeforeSuspension: user.status,
+            version: { increment: 1 },
+          },
+        });
+        await tx.session.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        await tx.otpChallenge.updateMany({
+          where: { userId: user.id, consumedAt: null, revokedAt: null },
+          data: { revokedAt: now },
+        });
+        await tx.auditEvent.create({
+          data: {
+            id: randomUUID(),
+            actorKind: "operator",
+            actorLabel: trimmedOperator,
+            operation: "admin.suspend",
+            entityType: "user",
+            entityId: user.id,
+            requestId: randomUUID(),
+            beforeValues: { status: user.status },
+            afterValues: { status: updated.status },
+            reason: trimmedReason,
+          },
+        });
+      } else {
+        if (user.status !== "suspended" || !user.statusBeforeSuspension) {
+          throw new Error("Administrator account is not suspended");
+        }
+        const updated = await tx.user.update({
+          where: { id: user.id },
+          data: {
+            status: user.statusBeforeSuspension,
+            statusBeforeSuspension: null,
+            version: { increment: 1 },
+          },
+        });
+        await tx.auditEvent.create({
+          data: {
+            id: randomUUID(),
+            actorKind: "operator",
+            actorLabel: trimmedOperator,
+            operation: "admin.restore",
+            entityType: "user",
+            entityId: user.id,
+            requestId: randomUUID(),
+            beforeValues: { status: user.status },
+            afterValues: { status: updated.status },
+            reason: trimmedReason,
+          },
+        });
+      }
+    });
+
+    console.log(`Administrator ${action} completed for ${normalizedEmail}`);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 // ─── CLI Entry Point ─────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -422,6 +548,23 @@ async function main(): Promise<void> {
     if (!file) fatal("--file is required");
     if (!operator) fatal("--operator is required");
     await adminsProvision(file!, operator!, hasFlag(args, "--apply"));
+  } else if (
+    command === "admins" &&
+    (subcommand === "suspend" || subcommand === "restore")
+  ) {
+    const email = getArg(args, "--email");
+    const reason = getArg(args, "--reason");
+    const operator = getArg(args, "--operator");
+    if (!email) fatal("--email is required");
+    if (!reason) fatal("--reason is required");
+    if (!operator) fatal("--operator is required");
+    await adminLifecycle(
+      subcommand,
+      email!,
+      reason!,
+      operator!,
+      hasFlag(args, "--apply"),
+    );
   } else {
     console.log("Usage:");
     console.log("  npx tsx prisma/scripts/cli.ts roster validate --file <path>");
@@ -430,6 +573,12 @@ async function main(): Promise<void> {
     );
     console.log(
       "  npx tsx prisma/scripts/cli.ts admins provision --file <path> --operator <label> [--apply]",
+    );
+    console.log(
+      "  npx tsx prisma/scripts/cli.ts admins suspend --email <email> --reason <reason> --operator <label> [--apply]",
+    );
+    console.log(
+      "  npx tsx prisma/scripts/cli.ts admins restore --email <email> --reason <reason> --operator <label> [--apply]",
     );
     process.exit(1);
   }

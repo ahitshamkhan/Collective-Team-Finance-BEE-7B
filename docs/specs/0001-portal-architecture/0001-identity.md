@@ -69,7 +69,7 @@ Use an HMAC digest of normalized email/IP as bucket keys, not raw PII. Return 42
 | Member login | Approved, verified, linked user without fixed admin match gets member full session directly after password verification. A reserved identity cannot fall back to member login to bypass OTP. |
 | Recovery | Generic request creates recovery challenge for existing account or dummy flow. `POST /auth/password/reset` accepts code and new password together; consumes challenge, replaces hash, revokes all sessions and audits in one transaction. It never issues a session or changes approval/suspension. |
 | Password change | Full session plus current password and new password; update hash, revoke all sessions, audit, then require login again. |
-| Suspension | Authorized admin, subject to unresolved admin suspension policy, changes target state and revokes sessions in one audited transaction. Regular member suspension is in scope. Restoration returns to stored previous state, never auto approves a pending/rejected user. |
+| Suspension | Regular member suspension/restoration is in scope via the admin API, which changes target state and revokes sessions in one audited transaction. Restoration returns to stored previous state and never auto-approves a pending/rejected user. Reserved administrator suspension/restoration is restricted to the audited operator CLI (`admins suspend` / `admins restore`), which blocks suspending the last active administrator; the web API rejects admin targets with `403`. |
 
 ### CLI provisioning
 
