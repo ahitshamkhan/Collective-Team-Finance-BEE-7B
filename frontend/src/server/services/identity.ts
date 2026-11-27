@@ -417,9 +417,9 @@ export async function reviewUser(
         },
       });
       if (reserved)
-        throw AppError.conflict(
-          "POLICY_UNRESOLVED",
-          "Administrator suspension policy is unresolved.",
+        throw AppError.forbidden(
+          "Administrator accounts can only be suspended or restored by an operator.",
+          "ADMIN_OPERATOR_ONLY",
         );
       if (action === "suspend") {
         if (u.status === "suspended")

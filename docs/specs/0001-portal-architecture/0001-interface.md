@@ -57,17 +57,17 @@ All paths below are relative to `/api/v1`. Noncreation successes use 200 unless 
 | GET `/transactions` | Member | `kind?,member_id?,group_id?,category?,date_from?,date_to?,status?,q?,page?,page_size?` | TransactionView list; keyword searches title/description; member filter matches depositing/context member; defaults to all statuses, UI labels active totals separately |
 | GET `/transactions/{id}` | Member | None | TransactionView with correction links |
 | POST `/deposits` | Admin | `member_id,amount,payment_date,description` plus Idempotency-Key | 201 TransactionView; duplicate replay same stored status/body, conflicting key 409 |
-| POST `/expenses` | Admin | `title,amount,expense_date,category,group_id?,associated_member_id?,description` plus Idempotency-Key | 201 TransactionView; explicit member context, no allocation; unresolved policy gate 409 |
-| POST `/transactions/{id}/void` | Admin | `reason` plus Idempotency-Key | 200 voided TransactionView; already corrected 409 |
-| POST `/transactions/{id}/replace` | Admin | `reason,replacement` plus Idempotency-Key; replacement schema matches original kind | 201 `{original:TransactionView,replacement:TransactionView}`; type/attribution violations 422 or policy gate 409 |
+| POST `/expenses` | Admin | `title,amount,expense_date,category,group_id?,associated_member_id?,description` plus Idempotency-Key | 201 TransactionView; explicit member context, no allocation; rejects future dates (`422`) and negative collective balance (`409 INSUFFICIENT_FUNDS`) |
+| POST `/transactions/{id}/void` | Admin | `reason` plus Idempotency-Key | 200 voided TransactionView; already corrected `409`; rejects deposit void causing negative collective balance (`409 INSUFFICIENT_FUNDS`) |
+| POST `/transactions/{id}/replace` | Admin | `reason,replacement` plus Idempotency-Key; replacement schema matches original kind | 201 `{original:TransactionView,replacement:TransactionView}`; type violations `422`; negative collective balance `409 INSUFFICIENT_FUNDS` |
 | GET `/admin/registrations` | Admin | `status=pending|rejected|approved|suspended|unverified?,q?,page?,page_size?` | RegistrationView list, default pending, keyword searches name/email |
 | GET `/admin/members/available` | Admin | None | Unlinked, unreserved roster members `{id,name,group_id}` for approval, never public |
 | POST `/admin/registrations/{id}/approve` | Admin | `member_id,expected_version` | RegistrationView; pending+verified required, link conflict or stale version 409 |
 | POST `/admin/registrations/{id}/reject` | Admin | `reason,expected_version` | RegistrationView; stale/invalid transition 409 |
 | PATCH `/admin/members/{id}` | Admin | `name?,group_id?,expected_version` | Updated roster data `{id,name,group_id,version}`; audits changes, no historical rewrite |
 | PATCH `/admin/groups/{id}` | Admin | `name,expected_version` | `{id,code,name,version}`; code immutable |
-| POST `/admin/users/{id}/suspend` | Admin | `reason,expected_version` | RegistrationView; atomic session revocation; admin target policy unresolved, block that branch |
-| POST `/admin/users/{id}/restore` | Admin | `reason,expected_version` | RegistrationView with prior status restored, sessions stay revoked; admin target policy unresolved |
+| POST `/admin/users/{id}/suspend` | Admin | `reason,expected_version` | RegistrationView; atomic session revocation; reserved admin targets rejected (`403`, operator CLI only) |
+| POST `/admin/users/{id}/restore` | Admin | `reason,expected_version` | RegistrationView with prior status restored, sessions stay revoked; reserved admin targets rejected (`403`, operator CLI only) |
 | GET `/admin/audit-events` | Admin | `actor_id?,entity_type?,entity_id?,operation?,from?,to?,page?,page_size?` | AuditView list; exact identifiers/date filters |
 
 `replacement` contains no `kind`, actor, status or immutable ID fields. `expected_version` is required for mutable admin records and compared under the mutation guard, incrementing on success. Approve/reject/suspend/restore audit reasons use 5..500 characters where required; approval itself needs no reason. Repeated stale approval/rejection cannot repeat its audit mutation. All mutation services use the audit whitelist.

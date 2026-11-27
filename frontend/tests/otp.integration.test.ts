@@ -176,36 +176,63 @@ it("Module 13: exact totals, parallel idempotency, immutable history, correction
   ).rejects.toThrow();
   expect(await db.transaction.count()).toBe(before);
   const replacementKey = randomUUID();
+  // Future dates are rejected (Asia/Karachi)
   await expect(
     financialWrite(
       session.id,
       "replace",
       replacementKey,
       {
-        reason: "Synthetic correction",
-        replacement: { ...payload, payment_date: "2000-01-01" },
+        reason: "Future date check",
+        replacement: { ...payload, payment_date: "2099-01-01" },
       },
       randomUUID(),
       original.id,
     ),
-  ).rejects.toMatchObject({ code: "POLICY_UNRESOLVED" });
+  ).rejects.toMatchObject({ status: 422, code: "VALIDATION_ERROR" });
   expect(
     (await db.transaction.findUniqueOrThrow({ where: { id: original.id } }))
       .status,
   ).toBe("active");
+
+  // Past dates and member/group attribution corrections via void-and-replace are permitted
+  const group2 = await db.group.create({
+    data: { id: randomUUID(), code: "FIN2", name: "Synthetic Finance Two" },
+  });
+  const member2 = await db.member.create({
+    data: {
+      id: randomUUID(),
+      rosterKey: "finance-member-2",
+      name: "Synthetic Member Two",
+      groupId: group2.id,
+    },
+  });
   await financialWrite(
     session.id,
     "replace",
     replacementKey,
     {
-      reason: "Synthetic correction",
-      replacement: { ...payload, amount: "0.40" },
+      reason: "Synthetic attribution correction",
+      replacement: {
+        member_id: member2.id,
+        amount: "0.40",
+        payment_date: "2020-01-15",
+        description: "Corrected historical deposit",
+      },
     },
     randomUUID(),
     original.id,
   );
+  const voidedOriginal = await db.transaction.findUniqueOrThrow({
+    where: { id: original.id },
+  });
+  expect(voidedOriginal.status).toBe("voided");
+  expect(voidedOriginal.memberId).toBe(member.id);
+  expect(voidedOriginal.groupId).toBe(group.id);
   expect((await summary(db)).collective_balance).toBe("0.60");
-  expect((await memberView(db, member.id)).contribution).toBe("0.60");
+  expect((await memberView(db, member.id)).contribution).toBe("0.20");
+  expect((await memberView(db, member2.id)).contribution).toBe("0.40");
+
   await expect(
     financialWrite(
       session.id,
@@ -216,21 +243,83 @@ it("Module 13: exact totals, parallel idempotency, immutable history, correction
       original.id,
     ),
   ).rejects.toMatchObject({ status: 409 });
-  await expect(
+
+  // Verified collective and group expenses are permitted while balance >= 0
+  await financialWrite(
+    session.id,
+    "expense",
+    randomUUID(),
+    {
+      title: "Synthetic collective expense",
+      amount: "0.35",
+      expense_date: "2020-02-01",
+      category: "collective",
+      description: "Collective expense test",
+    },
+    randomUUID(),
+  );
+  expect((await summary(db)).collective_balance).toBe("0.25");
+
+  // Concurrent expenses racing for the remaining 0.25 balance: only one succeeds
+  const race = await Promise.allSettled([
     financialWrite(
       session.id,
       "expense",
       randomUUID(),
       {
-        title: "Synthetic expense",
-        amount: "1.00",
+        title: "Concurrent group expense A",
+        amount: "0.20",
         expense_date: today(),
-        category: "collective",
-        description: "Policy test",
+        category: "group",
+        group_id: group.id,
+        description: "Race A",
       },
       randomUUID(),
     ),
-  ).rejects.toMatchObject({ code: "POLICY_UNRESOLVED" });
+    financialWrite(
+      session.id,
+      "expense",
+      randomUUID(),
+      {
+        title: "Concurrent group expense B",
+        amount: "0.20",
+        expense_date: today(),
+        category: "group",
+        group_id: group2.id,
+        description: "Race B",
+      },
+      randomUUID(),
+    ),
+  ]);
+  expect(race.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  expect(race.filter((r) => r.status === "rejected")).toHaveLength(1);
+  expect((await summary(db)).collective_balance).toBe("0.05");
+
+  // Voiding a deposit that would cause negative balance is rejected
+  const remainingDeposit = await db.transaction.findFirstOrThrow({
+    where: { kind: "deposit", status: "active" },
+  });
+  await expect(
+    financialWrite(
+      session.id,
+      "void",
+      randomUUID(),
+      { reason: "Overdraft void check" },
+      randomUUID(),
+      remainingDeposit.id,
+    ),
+  ).rejects.toMatchObject({ status: 409, code: "INSUFFICIENT_FUNDS" });
+
+  // Web API suspension of a reserved admin is rejected (operator-only CLI)
+  await expect(
+    reviewUser(
+      session.id,
+      user.id,
+      "suspend",
+      { expected_version: user.version, reason: "Operator-only check" },
+      randomUUID(),
+    ),
+  ).rejects.toMatchObject({ status: 403, code: "ADMIN_OPERATOR_ONLY" });
   await db.session.update({
     where: { id: session.id },
     data: { revokedAt: new Date() },
@@ -654,5 +743,5 @@ it("Module 12: admin OTP, approval, member access, suspension, restoration and r
       { reason: "Must remain gated", expected_version: adminCurrent.version },
       randomUUID(),
     ),
-  ).rejects.toMatchObject({ code: "POLICY_UNRESOLVED" });
+  ).rejects.toMatchObject({ status: 403, code: "ADMIN_OPERATOR_ONLY" });
 }, 30000);

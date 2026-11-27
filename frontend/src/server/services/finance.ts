@@ -44,8 +44,33 @@ export function today() {
     day: "2-digit",
   }).format(new Date());
 }
-export function policy(message: string): never {
-  throw AppError.conflict("POLICY_UNRESOLVED", message);
+export function assertNotFutureDate(date: string, field: string) {
+  if (date > today()) {
+    throw AppError.validation(
+      { [field]: ["Future dates are not permitted."] },
+      "Future transaction dates are not permitted.",
+    );
+  }
+}
+export async function assertNonNegativeBalance(tx: Tx) {
+  const rows = await tx.transaction.groupBy({
+    by: ["kind"],
+    where: { status: "active" },
+    _sum: { amount: true },
+  });
+  let deposits = new Prisma.Decimal(0);
+  let expenses = new Prisma.Decimal(0);
+  for (const row of rows) {
+    const amount = row._sum.amount ?? new Prisma.Decimal(0);
+    if (row.kind === "deposit") deposits = deposits.plus(amount);
+    else expenses = expenses.plus(amount);
+  }
+  if (deposits.minus(expenses).lt(0)) {
+    throw AppError.conflict(
+      "INSUFFICIENT_FUNDS",
+      "Collective balance cannot become negative.",
+    );
+  }
 }
 export function transactionView(
   t: Transaction & { replacedBy?: { id: string } | null },
@@ -158,15 +183,12 @@ async function insertDeposit(
   input: z.infer<typeof depositSchema>,
   original?: Transaction,
 ) {
-  if (input.payment_date !== today())
-    policy("Past and future financial date policies are unresolved.");
+  assertNotFutureDate(input.payment_date, "payment_date");
   const member = await tx.member.findUnique({
     where: { id: input.member_id },
     include: { group: true },
   });
   if (!member) throw AppError.notFound();
-  if (original && original.memberId !== member.id)
-    policy("Historical attribution changes are unresolved.");
   return tx.transaction.create({
     data: {
       id: randomUUID(),
@@ -175,10 +197,49 @@ async function insertDeposit(
       businessDate: new Date(`${input.payment_date}T00:00:00Z`),
       description: input.description,
       memberId: member.id,
-      memberNameSnapshot: original?.memberNameSnapshot ?? member.name,
-      groupId: original?.groupId ?? member.groupId,
-      groupCodeSnapshot: original?.groupCodeSnapshot ?? member.group.code,
-      groupNameSnapshot: original?.groupNameSnapshot ?? member.group.name,
+      memberNameSnapshot: member.name,
+      groupId: member.groupId,
+      groupCodeSnapshot: member.group.code,
+      groupNameSnapshot: member.group.name,
+      recordedBy: actor.id,
+      recordedByNameSnapshot: actor.name,
+      status: "active",
+      replacesId: original?.id,
+    },
+  });
+}
+async function insertExpense(
+  tx: Tx,
+  actor: { id: string; name: string },
+  input: z.infer<typeof expenseSchema>,
+  original?: Transaction,
+) {
+  assertNotFutureDate(input.expense_date, "expense_date");
+  const group =
+    input.category === "group" && input.group_id
+      ? await tx.group.findUnique({ where: { id: input.group_id } })
+      : null;
+  if (input.category === "group" && !group) throw AppError.notFound();
+  const member = input.associated_member_id
+    ? await tx.member.findUnique({
+        where: { id: input.associated_member_id },
+      })
+    : null;
+  if (input.associated_member_id && !member) throw AppError.notFound();
+  return tx.transaction.create({
+    data: {
+      id: randomUUID(),
+      kind: "expense",
+      amount: new Prisma.Decimal(input.amount),
+      businessDate: new Date(`${input.expense_date}T00:00:00Z`),
+      expenseCategory: input.category,
+      title: input.title,
+      description: input.description,
+      memberId: member?.id ?? null,
+      memberNameSnapshot: member?.name ?? null,
+      groupId: group?.id ?? null,
+      groupCodeSnapshot: group?.code ?? null,
+      groupNameSnapshot: group?.name ?? null,
       recordedBy: actor.id,
       recordedByNameSnapshot: actor.name,
       status: "active",
@@ -234,8 +295,6 @@ export async function financialWrite(
     }
     let responseBody: Prisma.InputJsonObject;
     const status = operation === "void" ? 200 : 201;
-    if (operation === "expense")
-      policy("Expense overdraft and date policies are unresolved.");
     if (operation === "deposit") {
       const row = await insertDeposit(tx, a.user, depositSchema.parse(input));
       responseBody = transactionView(row);
@@ -243,6 +302,20 @@ export async function financialWrite(
         tx,
         a.user,
         "deposit.create",
+        "transaction",
+        row.id,
+        requestId,
+        undefined,
+        responseBody,
+      );
+    } else if (operation === "expense") {
+      const row = await insertExpense(tx, a.user, expenseSchema.parse(input));
+      await assertNonNegativeBalance(tx);
+      responseBody = transactionView(row);
+      await audit(
+        tx,
+        a.user,
+        "expense.create",
         "transaction",
         row.id,
         requestId,
@@ -262,9 +335,6 @@ export async function financialWrite(
       const correction = z
         .object({ reason: z.string(), replacement: z.unknown().optional() })
         .parse(input);
-      // Void remains available. Replacing an expense is gated with expense creation.
-      if (operation === "replace" && original.kind === "expense")
-        policy("Expense policies are unresolved.");
       const voided = await tx.transaction.update({
         where: { id: original.id },
         data: {
@@ -287,16 +357,25 @@ export async function financialWrite(
         correction.reason,
       );
       if (operation === "replace") {
-        const replacement = await insertDeposit(
-          tx,
-          a.user,
-          depositSchema.parse(correction.replacement),
-          original,
-        );
+        const replacement =
+          original.kind === "deposit"
+            ? await insertDeposit(
+                tx,
+                a.user,
+                depositSchema.parse(correction.replacement),
+                original,
+              )
+            : await insertExpense(
+                tx,
+                a.user,
+                expenseSchema.parse(correction.replacement),
+                original,
+              );
+        await assertNonNegativeBalance(tx);
         await audit(
           tx,
           a.user,
-          "deposit.replace",
+          original.kind === "deposit" ? "deposit.replace" : "expense.replace",
           "transaction",
           replacement.id,
           requestId,
@@ -311,6 +390,8 @@ export async function financialWrite(
           }),
           replacement: transactionView(replacement),
         };
+      } else {
+        await assertNonNegativeBalance(tx);
       }
     }
     await tx.idempotencyRequest.create({
